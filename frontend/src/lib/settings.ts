@@ -124,7 +124,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeLight: false,
   font: "geist-mono",
   fontSize: DEFAULT_FONT_SIZE,
-  uiScale: 0.9,
+  uiScale: 1.0,
   termPad: 10,
   termRadius: 18,
   explorerSide: "right",

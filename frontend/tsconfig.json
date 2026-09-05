@@ -19,17 +19,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "@tauri-apps/api/core": ["src/shim/core.ts"],
-      "@tauri-apps/api/window": ["src/shim/window.ts"],
-      "@tauri-apps/api/event": ["src/shim/event.ts"],
-      "@tauri-apps/api/path": ["src/shim/path.ts"],
-      "@tauri-apps/plugin-opener": ["src/shim/opener.ts"],
-      "@tauri-apps/plugin-dialog": ["src/shim/dialog.ts"],
-      "@tauri-apps/plugin-clipboard-manager": ["src/shim/clipboard.ts"],
-      "@tauri-apps/plugin-notification": ["src/shim/notification.ts"]
-    }
+    "baseUrl": "."
   },
   "include": [
     "src"

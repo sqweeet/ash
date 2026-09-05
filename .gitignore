@@ -7,6 +7,10 @@ node_modules
 frontend/dist
 frontend/package.json.md5
 
+# Tauri build output and generated permission schemas
+src-tauri/target
+src-tauri/gen
+
 # Local binaries (never commit built exes)
 *.exe
 *.exe~

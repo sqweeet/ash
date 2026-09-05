@@ -18,8 +18,6 @@
   /* hover: background only — no filter on the type */
   transition: background-color 0.12s ease;
   user-select: none;
-  /* don't start a window-drag from the button */
-  --wails-draggable: no-drag;
 }
 .rail-top .update-badge:hover {
   background: #1d4ed8;

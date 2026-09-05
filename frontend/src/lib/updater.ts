@@ -1,11 +1,10 @@
-// Self-update against GitHub Releases. The Go side (updater.go) does the
+// Self-update against GitHub Releases. The Rust side (src-tauri) does the
 // real work: CheckUpdate queries /releases/latest, DownloadUpdate streams the
 // Ash.exe asset to disk (emitting "update:progress" events), ApplyUpdate
 // swaps the binary in place and relaunches. This module wraps the invoke
 // calls + event stream into a tiny reactive store the UI subscribes to.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { app } from "../../wailsjs/go/models";
 
 export type UpdateStage =
   | "idle"
@@ -22,7 +21,7 @@ export type UpdateStage =
 export interface UpdateState {
   stage: UpdateStage;
   /** Latest release found by CheckUpdate (null until a check succeeds). */
-  release: app.UpdateRelease | null;
+  release: UpdateReleaseInfo | null;
   /** 0-100 during downloading; 100 once downloaded. */
   percent: number;
   downloaded: number;
@@ -103,9 +102,9 @@ export async function checkForUpdate(): Promise<UpdateState> {
     const r = (await invoke<UpdateReleaseInfo>("check_update"));
     checkedThisSession = true;
     if (r.hasUpdate) {
-      set({ stage: "available", release: r as unknown as app.UpdateRelease, error: null });
+      set({ stage: "available", release: r, error: null });
     } else {
-      set({ stage: "up-to-date", release: r as unknown as app.UpdateRelease, error: null });
+      set({ stage: "up-to-date", release: r, error: null });
     }
     return state;
   } catch (err) {
@@ -159,7 +158,7 @@ export function startDemo(): void {
   let pct = 0;
   set({
     stage: "demo",
-    release: DEMO_RELEASE as unknown as app.UpdateRelease,
+    release: DEMO_RELEASE,
     percent: 0,
     downloaded: 0,
     total: DEMO_RELEASE.downloadSize,
