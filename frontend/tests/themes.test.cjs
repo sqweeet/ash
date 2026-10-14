@@ -90,6 +90,17 @@ test('gray surfaces have no color cast, readable text, and a neutral light varia
   assert.ok(contrast(gray.theme.brightBlack, gray.theme.background) >= 4.5);
 });
 
+test('terminal scrollbar gutter has no ruler border in any theme', () => {
+  const { mod } = settingsHarness();
+  for (const theme of themes.THEMES) {
+    for (const themeLight of [false, true]) {
+      const palette = mod.terminalTheme({ ...mod.DEFAULT_SETTINGS, theme: theme.id, themeLight });
+      assert.equal(palette.overviewRulerBorder, '#00000000', `${theme.id}, light=${themeLight}`);
+      assert.ok(palette.scrollbarSliderBackground, 'keep the scrollbar visible and usable');
+    }
+  }
+});
+
 test('first-paint CSS, splash, and native window match the default gray', () => {
   const css = readFileSync(path.join(__dirname, '../src/styles/base.css'), 'utf8');
   const root = css.match(/:root\s*\{([^}]+)\}/)[1];

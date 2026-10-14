@@ -167,6 +167,9 @@
    surface, so a border just outlines dead padding */
 .pane.term-pane {
   box-shadow: none;
+  /* FitAddon already reserves the 11px scrollbar from term.ts / xterm.css.
+     Let that gutter occupy the inset instead of adding padding on top. */
+  padding-right: max(0px, calc(var(--term-pad, 10px) - 11px));
 }
 
 /* warm breathing glow around a terminal the agent is actively driving —

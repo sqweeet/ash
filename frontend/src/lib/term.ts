@@ -216,6 +216,8 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
     fontSize: settings.fontSize,
     lineHeight: 1.2,
     scrollback: opts?.scrollback ?? 10000,
+    // Match xterm.css; the pane counts this gutter as part of its right inset.
+    overviewRuler: { width: 11 },
     theme: terminalTheme(settings),
   });
 }

@@ -170,6 +170,8 @@ export function terminalTheme(s: Settings): ITheme {
   const light = s.themeLight;
   return {
     ...resolvedPreset(s.theme, light).theme,
+    // The custom scrollbar width also enables xterm's ruler. Hide its white outline.
+    overviewRulerBorder: "#00000000",
     scrollbarSliderBackground: light ? "rgba(0, 0, 0, 0.16)" : "rgba(255, 255, 255, 0.12)",
     scrollbarSliderHoverBackground: light ? "rgba(0, 0, 0, 0.28)" : "rgba(255, 255, 255, 0.22)",
     scrollbarSliderActiveBackground: light ? "rgba(0, 0, 0, 0.36)" : "rgba(255, 255, 255, 0.3)",
