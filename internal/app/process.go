@@ -1,9 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sync"
@@ -129,14 +129,9 @@ func (p *Process) Run(id string, program string, args []string, cwd string, time
 	cmd.Cancel = func() error { return stopProcessTree(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 	hideProcessWindow(cmd)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return ProcessOutput{}, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return ProcessOutput{}, err
-	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		switch ctx.Err() {
 		case context.Canceled:
@@ -148,30 +143,12 @@ func (p *Process) Run(id string, program string, args []string, cwd string, time
 		}
 	}
 
-	var stdoutData, stderrData []byte
-	var stdoutErr, stderrErr error
-	var readers sync.WaitGroup
-	readers.Add(2)
-	go func() {
-		defer readers.Done()
-		stdoutData, stdoutErr = io.ReadAll(stdout)
-	}()
-	go func() {
-		defer readers.Done()
-		stderrData, stderrErr = io.ReadAll(stderr)
-	}()
+	// os/exec waits for both output copies before closing their pipes.
 	waitErr := cmd.Wait()
-	readers.Wait()
-	if stdoutErr != nil {
-		return ProcessOutput{}, stdoutErr
-	}
-	if stderrErr != nil {
-		return ProcessOutput{}, stderrErr
-	}
 
 	out := ProcessOutput{
-		Stdout:    string(stdoutData),
-		Stderr:    string(stderrData),
+		Stdout:    stdout.String(),
+		Stderr:    stderr.String(),
 		TimedOut:  ctx.Err() == context.DeadlineExceeded,
 		Cancelled: ctx.Err() == context.Canceled,
 	}

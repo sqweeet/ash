@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { invoke } from "../backend/core";
+import { ask } from "../backend/dialog";
 
 interface DirItem {
   name: string;

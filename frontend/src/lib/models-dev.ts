@@ -89,7 +89,7 @@ export function loadModelsDev(): Promise<ModelInfo[]> {
     } catch {
       // ignore a corrupt cache
     }
-    const res = await fetch(API);
+    const res = await fetch(API, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`models.dev HTTP ${res.status}`);
     const parsed = parse(await res.json());
     catalog = parsed;
@@ -213,17 +213,11 @@ export function brandForModelId(modelId: string): string | null {
 // frame instead of flashing in a millisecond late.
 const prefetched = new Set<string>();
 
-/** Warm the browser's HTTP cache for a set of logo URLs so the picker's
- * <img> paints on its first frame instead of flashing in late. We use BOTH a
- * no-cors fetch (warms the disk cache shared with later <img> requests) and an
- * Image() preload (the canonical way to cache for <img>, and what actually
- * drives the decode). Best-effort — a failure just means that one icon may
- * still pop in, never blocks startup. */
+/** Preload each logo once; optional artwork never blocks startup. */
 export function prefetchLogos(urls: Iterable<string>): void {
   for (const url of urls) {
     if (prefetched.has(url)) continue;
     prefetched.add(url);
-    fetch(url, { mode: "no-cors" }).catch(() => {});
     const img = new Image();
     img.src = url;
   }

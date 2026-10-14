@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 
 /** A quick-launch entry stored per-project in .ash/run.json. */
 export interface RunConfig {

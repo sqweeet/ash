@@ -2,8 +2,8 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "Ash",
   "outputfilename": "Ash",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build:debug",
+  "frontend:install": "npm ci",
+  "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
@@ -13,7 +13,7 @@
   "info": {
     "companyName": "Ash",
     "productName": "Ash",
-    "productVersion": "1.1.5",
+    "productVersion": "1.2.0",
     "copyright": "Copyright © Ash"
   }
 }

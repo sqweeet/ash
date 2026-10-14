@@ -1,5 +1,5 @@
 import { Component, ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./backend/core";
 
 // Catches render-time errors (the startup overlay only covers main()'s async
 // boot) and persists a small crash log for the next debugging session.

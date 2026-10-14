@@ -6,7 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Dialog + clipboard helpers exposed to the frontend through the Tauri shim.
+// Native dialog and clipboard helpers exposed through Wails.
 // These use the Wails runtime directly (no plugin install needed) — Ash's
 // frontend calls ask()/openDialog()/clipboard read/write via the shim which
 // routes here.

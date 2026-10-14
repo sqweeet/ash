@@ -2,9 +2,11 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { openUrl } from "../backend/opener";
+import { readText, writeText } from "../backend/clipboard";
 import "@xterm/xterm/css/xterm.css";
+import { configureTerminalWheel } from "./terminal-wheel";
+import { createTerminalOutput } from "./terminal-output";
 
 import {
   DEFAULT_FONT_SIZE,
@@ -18,6 +20,7 @@ import {
   offPty,
   onPtyData,
   onPtyExit,
+  ptyBackend,
   ptyResize,
   ptySpawn,
   ptyWrite,
@@ -42,6 +45,8 @@ export interface TermSession {
   /** Last OSC window title seen from this terminal — used by agent detection
    *  to extract a conversation topic (Claude Code emits {spinner} {topic}). */
   lastTitle: string;
+  /** Timers and output queues must stop before disposing xterm. */
+  cleanup: (() => void)[];
 }
 
 interface SessionEvents {
@@ -52,6 +57,8 @@ interface SessionEvents {
   onOpenLocalUrl: (id: string, url: string) => void;
   /** cwd for newly spawned shells (active workspace). */
   getCwd: () => string | null;
+  /** Known fullscreen SGR application whose early mouse setup ConPTY may lose. */
+  usesSgrMouseInAltScreen?: (id: string) => boolean;
 }
 
 const sessions = new Map<string, TermSession>();
@@ -68,20 +75,19 @@ function copyToClipboard(text: string): void {
 
 /** Read the clipboard, retrying briefly so a dictation app (Wispr Flow) that
  *  sets the clipboard and simulates the keystroke near-simultaneously doesn't
- *  lose the race. Tries both the Tauri binding and the web navigator.clipboard
+ *  lose the race. Tries both the native binding and the web navigator.clipboard
  *  API — whichever returns text first wins. */
 async function readClipboardReliable(): Promise<string> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    // Tauri binding (Go clipboard) — usually the reliable one in Wails.
-    const tauriText = await readText().catch(() => "");
-    if (tauriText) return tauriText;
+    const nativeText = await readText().catch(() => "");
+    if (nativeText) return nativeText;
     // Web Clipboard API — sometimes populated sooner by the dictation app.
     try {
       const webText = await navigator.clipboard.readText();
       if (webText) return webText;
     } catch {
       // navigator.clipboard can be unavailable (permissions / non-secure
-      // context) — the Tauri path is the fallback below.
+      // context) — retry the native clipboard below.
     }
     // Backoff: 30 → 60 → 90 → 120 → 150 ms. Total worst case ~450 ms, which
     // is imperceptible for a paste but covers the clipboard-settle race.
@@ -203,8 +209,9 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
   const settings = getSettings();
   return new Terminal({
     allowProposedApi: true,
-    cursorBlink: true,
+    cursorBlink: false,
     cursorStyle: "bar",
+    cursorInactiveStyle: "none",
     fontFamily: fontFamily(settings),
     fontSize: settings.fontSize,
     lineHeight: 1.2,
@@ -216,12 +223,10 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
 // Wire PTY data/exit + spawn. Shared by headless and rendered sessions: the PTY
 // side is identical whether or not a renderer is attached.
 function wireAndSpawn(
-  id: string,
-  term: Terminal,
+  session: TermSession,
   spawnOpts: SpawnOptions | undefined,
-  cols: number,
-  rows: number,
 ): Promise<void> {
+  const { id, term } = session;
   // A terminal that starts by running something (utility, ssh, agent command)
   // is "used" from birth — only a bare shell counts as pristine.
   if (spawnOpts?.command || spawnOpts?.program) used.add(id);
@@ -233,46 +238,42 @@ function wireAndSpawn(
   // Auto-type a saved password once, when ssh/sudo prompts for it.
   let passwordPending = spawnOpts?.password ?? "";
   let promptBuffer = "";
-  // Coalesce PTY events into ONE term.write per animation frame: a burst of
-  // output (build/cat) fires many small events, and one batched write per frame
-  // is far cheaper than one write per event. rAF always fires, so nothing sticks.
-  let pendingWrite = "";
-  let writeRaf = 0;
-  const flushWrite = () => {
-    writeRaf = 0;
-    // Session was disposed while a flush was queued — drop it (term is gone).
-    if (!sessions.has(id)) {
-      pendingWrite = "";
-      return;
-    }
-    if (!pendingWrite) return;
-    const chunk = pendingWrite;
-    pendingWrite = "";
-    term.write(chunk);
+  const output = createTerminalOutput(term);
+  session.cleanup.push(() => output.dispose());
+  onPtyData(id, (data) => {
+    output.write(data);
     if (passwordPending) {
-      promptBuffer = (promptBuffer + chunk).slice(-200);
+      promptBuffer = (promptBuffer + data).slice(-200);
       if (/(password|passphrase)[^:]*:\s*$/i.test(promptBuffer)) {
         ptyWrite(id, passwordPending + "\r");
         passwordPending = "";
         promptBuffer = "";
       }
     }
-  };
-  onPtyData(id, (data) => {
-    pendingWrite += data;
-    if (!writeRaf) writeRaf = requestAnimationFrame(flushWrite);
   });
-  onPtyExit(id, () => events?.onExit(id));
+  onPtyExit(id, () => output.flush(() => {
+    if (sessions.get(id) === session) events?.onExit(id);
+  }));
 
-  return ptySpawn(id, cols, rows, cwd, spawnOpts?.program ?? null, spawnOpts?.args ?? null)
+  return ptyBackend()
+    .then((info) => {
+      if (sessions.get(id) === session && info.backend === "conpty") {
+        term.options.windowsPty = { backend: "conpty", buildNumber: info.buildNumber };
+      }
+    })
+    .then(() => {
+      if (sessions.get(id) !== session) return null;
+      return ptySpawn(id, term.cols, term.rows, cwd, spawnOpts?.program ?? null, spawnOpts?.args ?? null);
+    })
     .then(async (shell) => {
+      if (shell === null || sessions.get(id) !== session) return;
       events?.onShell(id, shell.replace(/\.exe$/i, ""));
       // Only shells get a typed command; a direct program (ssh) runs itself.
       if (spawnOpts?.command && !spawnOpts?.program)
         await ptyWrite(id, spawnOpts.command + "\r");
     })
     .catch((err) => {
-      term.writeln(`\x1b[31mfailed to start:\x1b[0m ${err}`);
+      if (sessions.get(id) === session) term.writeln(`\x1b[31mfailed to start:\x1b[0m ${err}`);
       throw err;
     });
 }
@@ -298,11 +299,21 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
     }),
   );
   term.open(container);
+  session.cleanup.push(configureTerminalWheel(term, () =>
+    term.options.windowsPty?.backend === "conpty" &&
+    (events?.usesSgrMouseInAltScreen?.(id) ?? false),
+  ));
   let webgl: WebglAddon | null = null;
   if (useWebgl) {
     try {
       webgl = new WebglAddon();
       term.loadAddon(webgl);
+      const addon = webgl;
+      addon.onContextLoss(() => {
+        addon.dispose();
+        session.webgl = null;
+        term.refresh(0, term.rows - 1);
+      });
     } catch {
       // WebGL unavailable — DOM renderer still works fine.
       webgl = null;
@@ -390,12 +401,13 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
     used.add(id); // any keystroke makes the terminal non-pristine
     ptyWrite(id, data);
   });
-  // Debounce the PTY resize: a divider/pane drag fires onResize every frame, but
-  // ConPTY only needs the FINAL size. xterm's own visual reflow stays immediate.
+  // Pane layout already debounces fits during drags. Coalesce native resizes
+  // briefly so the TUI doesn't draw against the previous grid for another 80ms.
   let resizeTimer = 0;
+  session.cleanup.push(() => clearTimeout(resizeTimer));
   term.onResize(({ cols, rows }) => {
     clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => ptyResize(id, cols, rows), 80);
+    resizeTimer = window.setTimeout(() => ptyResize(id, cols, rows), 16);
   });
   term.onTitleChange((title) => {
     session.lastTitle = title;
@@ -416,7 +428,6 @@ export function ensureSession(id: string, host: HTMLElement): TermSession {
     if (existing.container && existing.container.parentElement !== host) {
       host.appendChild(existing.container);
       existing.fit?.fit();
-      ptyResize(id, existing.term.cols, existing.term.rows);
     }
     return existing;
   }
@@ -432,13 +443,14 @@ export function ensureSession(id: string, host: HTMLElement): TermSession {
     container: null,
     rendered: false,
     lastTitle: "",
+    cleanup: [],
   };
   attachRenderer(session, host);
   // Register before spawning so an immediate PTY event can always find the
   // session. A visible terminal keeps its rendered startup error for the user.
   sessions.set(id, session);
   // Spawn at the fitted size so the shell starts with the right geometry.
-  void wireAndSpawn(id, term, spawnOpts, term.cols, term.rows).catch(() => {});
+  void wireAndSpawn(session, spawnOpts).catch(() => {});
   return session;
 }
 
@@ -464,17 +476,19 @@ export async function ensureBackgroundSession(id: string): Promise<TermSession> 
     container: null,
     rendered: false,
     lastTitle: "",
+    cleanup: [],
   };
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-10000px;top:0;width:900px;height:500px;overflow:hidden;";
   document.body.appendChild(host);
+  session.cleanup.push(() => host.remove());
   attachRenderer(session, host, false);
   // Register before spawning so output that arrives immediately isn't dropped.
   sessions.set(id, session);
   // Unlike a user-visible terminal, a background tool must not claim success
   // before its PTY exists: surface the actual startup error to the agent.
   try {
-    await wireAndSpawn(id, term, spawnOpts, term.cols, term.rows);
+    await wireAndSpawn(session, spawnOpts);
     return session;
   } catch (error) {
     disposeSession(id);
@@ -504,6 +518,7 @@ export function disposeSession(id: string) {
   sessions.delete(id);
   used.delete(id);
   offPty(id);
+  session.cleanup.forEach((cleanup) => cleanup());
   session.term.dispose();
   session.container?.remove();
 }

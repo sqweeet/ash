@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { hasBash } from "./tools/bash";
+import { invoke } from "../../backend/core";
 import { resolveInCwd } from "./tools/paths";
 import { discoverSkills } from "./skills";
 
@@ -45,14 +44,11 @@ skill gets picked up), then the instructions as markdown. Keep it focused —
 one skill, one job.`;
 
 export async function buildSystemPrompt(cwd: string): Promise<string> {
-  // independent lookups — run concurrently (they were three sequential waits)
-  const [bash, agentsMd, skills] = await Promise.all([
-    hasBash(),
+  const [agentsMd, skills] = await Promise.all([
     readAgentsMd(cwd),
     skillsSection(cwd),
   ]);
   const shellGuidance = `Shell: this is a Windows machine; write portable PowerShell, never bash, cmd, WSL, or Unix syntax. The tool is named "bash" for compatibility, but it runs a fresh one-shot PowerShell process on EVERY call. Do not expect cd or $env: variables from one bash call to persist into the next: combine state and work in one command (for example, "Set-Location src; npm test"). Use ";" to sequence commands (Windows PowerShell has no "&&"), "$env:VAR" for env vars, Test-Path, Get-ChildItem/ls, Remove-Item, Select-String (not grep), Get-Content (not cat), New-Item. For persistent state, REPLs, TUIs, watchers, or dev servers, use bash_background then read_terminal / terminal_input; those background terminals are PowerShell too (possibly pwsh), so keep syntax compatible with Windows PowerShell. Note: npm scripts spawn via cmd internally, so a "'x' is not recognized as an internal or external command" error is usually a missing PATH/binary — it does NOT mean you are in cmd. For reading and searching files, prefer the read_file/grep/glob tools over shelling out.`;
-  void bash;
   return `You are Ash, a coding agent embedded directly in the Ash terminal app.
 Current working directory: ${cwd}
 ${shellGuidance}

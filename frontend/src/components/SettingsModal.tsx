@@ -217,7 +217,7 @@ import {
   EngineProvider,
 } from "../lib/settings";
 import type { ThinkingFormat } from "../lib/agent-engine/thinking-config";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 import { resetAshData } from "../lib/chat-store";
 import { loadModelsDev, lookupModel, providerLogo, modelLogo } from "../lib/models-dev";
 import type { ModelInfo } from "../lib/models-dev";
@@ -599,7 +599,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
 
   return (
     <div className="settings-page">
-      <nav className="settings-nav" data-tauri-drag-region>
+      <nav className="settings-nav" data-window-drag>
         <button
           className="settings-back"
           onClick={onClose}
@@ -611,7 +611,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           </svg>
           Back
         </button>
-        <div className="settings-search-wrap" data-tauri-drag-region>
+        <div className="settings-search-wrap" data-window-drag>
           <div className={`settings-search${searchQuery && searchActive ? " open" : ""}`} ref={searchRef}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
@@ -699,8 +699,8 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
         </div>
       </nav>
 
-      <div className="settings-content" data-tauri-drag-region>
-          <div className="settings-inner" data-tauri-drag-region>
+      <div className="settings-content" data-window-drag>
+          <div className="settings-inner" data-window-drag>
             {cat === "appearance" && (
               <section>
                 <h3>Appearance</h3>

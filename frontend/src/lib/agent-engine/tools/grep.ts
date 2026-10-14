@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../backend/core";
 import { Tool } from "../types";
 import { runProcess } from "./run-process";
 import { resolveToolPath } from "./paths";

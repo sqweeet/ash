@@ -15,7 +15,7 @@ import { ContentBlock, Message } from "../lib/agent-engine/types";
 import { notifyAgentEvent } from "../lib/notify";
 import { discoverSkills, SkillMeta } from "../lib/agent-engine/skills";
 import { FileMatch, browseFiles, listProjectFiles, mentionToDiskPath } from "../lib/file-search";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 import { getBgAgent, getBgAgents, markBgAgentReported, onBgAgentFinished, onBgAgentsChange } from "../lib/bg-agents";
 import MeshAvatar from "./MeshAvatar";
 import { SquircleBox, GridSpiral, ShieldIcon, FullAccessIcon, SandboxIcon, ModeCheck, BulbIcon, ContextGauge, ToolIcon } from "./agent/icons";
@@ -448,9 +448,6 @@ export default function AgentThread({
   // Loaded once so the model picker can show models.dev provider logos.
   const [modelsReady, setModelsReady] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null);
-  // Keeps the fringe mounted through its exit animation (sink behind the
-  // composer) — same mount-through-close trick as the Explorer panel.
-  const [permClosing, setPermClosing] = useState(false);
   const [permMode, setPermMode] = useState<EnginePermissionMode>(
     () => getSettings().engine.permissionMode,
   );
@@ -598,10 +595,8 @@ export default function AgentThread({
         ? firstUser.text.slice(0, 34) + "…"
         : firstUser.text
       : name;
-    const live = engineSession.current?.history ?? savedHistory.current ?? [];
-    const prev = getChat(id)?.history ?? [];
-    // never overwrite a longer saved history with a shorter/empty one
-    const history = live.length >= prev.length ? live : prev;
+    // A compacted live history is authoritative even when it is shorter.
+    const history = engineSession.current?.history ?? savedHistory.current ?? getChat(id)?.history ?? [];
     // cap the persisted transcript so a very long chat stays fast to serialize
     const savedItems = items.length > MAX_PERSIST_ITEMS ? items.slice(-MAX_PERSIST_ITEMS) : items;
     saveChat({ chatId: id, agentId, cwd, name, title, items: savedItems, history });
@@ -890,19 +885,10 @@ export default function AgentThread({
     runEngine(note);
   };
 
-  // Sink the fringe back behind the composer, then unmount it.
-  const closePermcap = () => {
-    setPermClosing(true);
-    window.setTimeout(() => {
-      setPendingPermission(null);
-      setPermClosing(false);
-    }, 200);
-  };
-
   const respondPermission = (approved: boolean) => {
-    if (!pendingPermission || permClosing) return;
+    if (!pendingPermission) return;
+    setPendingPermission(null);
     engineSession.current?.resolvePermission(pendingPermission.reqId, approved);
-    closePermcap();
   };
 
   const closeModeMenu = () => {
@@ -1361,7 +1347,7 @@ export default function AgentThread({
     turnGen.current++;
     engineSession.current?.cancel();
     // cancel() already denied any pending permission — retire its fringe too
-    if (pendingPermission && !permClosing) closePermcap();
+    setPendingPermission(null);
     if (busy) push({ k: "note", id: nextId(), text: "Stopped" });
     setBusy(false);
   };
@@ -1397,8 +1383,8 @@ export default function AgentThread({
       radius={44}
       smoothing={1}
     >
-      {pendingPermission && !permClosing && (
-        <div className={`agent-permcap${permClosing ? " closing" : ""}`}>
+      {pendingPermission && (
+        <div className="agent-permcap">
           <span className="agent-permcap-text">{pendingPermission.summary}</span>
           <span className="agent-permcap-actions">
             <button className="allow" onClick={() => respondPermission(true)}>

@@ -1,15 +1,22 @@
+[data-window-drag] {
+  --wails-draggable: drag;
+}
+button, input, select, textarea, a, [role="button"] {
+  --wails-draggable: no-drag;
+}
+
 :root {
   color-scheme: dark;
-  /* Palette vars are set at runtime by applyAppTheme(); these are fallbacks. */
-  --bg: #0a0a0a;
-  --surface: #151515;
-  --raise: #1e1e1e;
-  --border: rgba(255, 255, 255, 0.08);
-  --text: #ececec;
-  --muted: #a6a6a6;
-  --faint: #707070;
-  --icon: #b4b4b4;
-  --hover: rgba(255, 255, 255, 0.055);
+  /* Runtime palettes come from applyAppTheme(); first paint uses Gray. */
+  --bg: #181818;
+  --surface: #202020;
+  --raise: #2b2b2b;
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #e4e4e4;
+  --muted: #ababab;
+  --faint: #818181;
+  --icon: #bdbdbd;
+  --hover: rgba(255, 255, 255, 0.06);
   /* Whole-UI scale, applied to .app (compensated so it still fills the window).
      Set at runtime from settings; 1 = 100%. */
   --ui-zoom: 1;
@@ -35,9 +42,12 @@
 }
 
 /* Hide the fact this is a WebView — behave like a native app. */
-*:focus,
-*:focus-visible {
+*:focus:not(:focus-visible) {
   outline: none;
+}
+*:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 a,

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./backend/core";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import ErrorBoundary from "./ErrorBoundary";
@@ -87,30 +87,6 @@ async function applyMacPreviewIfDev() {
 }
 void applyMacPreviewIfDev();
 
-// Strip native `title` tooltips app-wide — desktop apps don't show them.
-function stripTitlesIn(el: Element) {
-  if (el.hasAttribute("title")) el.removeAttribute("title");
-  el.querySelectorAll("[title]").forEach((n) => n.removeAttribute("title"));
-}
-new MutationObserver((mutations) => {
-  for (const m of mutations) {
-    if (m.type === "attributes" && m.target instanceof Element) {
-      m.target.removeAttribute("title");
-    } else {
-      m.addedNodes.forEach((n) => {
-        // skip terminal DOM churn — xterm nodes never carry titles
-        if (n instanceof Element && !n.closest(".term-container")) {
-          stripTitlesIn(n);
-        }
-      });
-    }
-  }
-}).observe(document.documentElement, {
-  subtree: true,
-  childList: true,
-  attributeFilter: ["title"],
-});
-
 async function start() {
   // Surface any startup failure on-screen — without this a throw leaves the
   // gray splash up and there's no clue what's broken. Set up global handlers
@@ -119,11 +95,11 @@ async function start() {
     const splash = document.getElementById("splash");
     if (splash) splash.remove();
     const root = document.getElementById("root")!;
-    root.innerHTML =
-      '<div style="font-family:Consolas,monospace;color:#ff6369;padding:24px;font-size:13px;white-space:pre-wrap;background:#0a0a0a;min-height:100vh">' +
-      "Ash failed to start:\n\n" + String(e) + "\n\n" +
-      (e instanceof Error ? e.stack ?? "" : "") +
-      "</div>";
+    const message = document.createElement("pre");
+    message.style.cssText = "color:#ff6369;padding:24px;white-space:pre-wrap;background:#0a0a0a;min-height:100vh";
+    message.textContent = "Ash failed to start:\n\n" + String(e) + "\n\n" +
+      (e instanceof Error ? e.stack ?? "" : "");
+    root.replaceChildren(message);
     console.error("startup error:", e);
   };
   window.addEventListener("error", (e) => showError(e.error ?? e.message));
@@ -143,7 +119,8 @@ async function start() {
   // prefetch the SVG for every configured model's brand into the HTTP cache so
   // the picker's <img> paints on the first frame — without this the icons
   // flashed in a millisecond late (catalog fetch + per-icon SVG fetch stacked).
-  const modelsReady = loadModelsDev()
+  // Optional network data must not delay opening a local terminal.
+  void Promise.all([settingsReady, loadModelsDev()])
     .then(() => {
       const eng = getSettings().engine;
       const urls = new Set<string>();
@@ -193,7 +170,7 @@ async function start() {
 
   // Block the first render only on what it truly needs: the restored tabs and
   // the terminal fonts (both already in flight, overlapping each other).
-  await Promise.all([chatsReady, fontsReady, modelsReady]);
+  await Promise.all([chatsReady, fontsReady]);
 
   // No StrictMode: its double-mounted effects would spawn every PTY twice.
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

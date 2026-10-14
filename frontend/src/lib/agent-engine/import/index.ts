@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "../../../backend/core";
+import { homeDir } from "../../../backend/path";
 
 import { saveChat } from "../../chat-store";
 import { ImportedSessionMeta, ImportSource, ParsedSession } from "./types";

@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "../../backend/core";
+import { homeDir } from "../../backend/path";
 import { resolveInCwd } from "./tools/paths";
 
 // Claude Code-style skills: a folder holding a SKILL.md with YAML
@@ -77,8 +77,7 @@ export async function discoverSkills(cwd: string): Promise<SkillMeta[]> {
   } catch {
     // no home dir — project roots only
   }
-  // roots are independent — scan them concurrently (they were sequential
-  // Rust round-trips before)
+  // Project roots take precedence; scan independent directories concurrently.
   const results = await Promise.all(roots.map(scanRoot));
   const seen = new Map<string, SkillMeta>();
   for (const list of results)

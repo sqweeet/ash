@@ -1,9 +1,6 @@
 name: Release
 
-# Triggered by a version tag (vMAJOR.MINOR.PATCH). Builds Ash.exe AND the NSIS
-# installer with the version baked in via ldflags, then publishes a GitHub
-# Release with BOTH assets attached — the bare .exe (what the in-app self-updater
-# downloads) and the installer (for fresh installs).
+# Tag a tested version to publish the Windows installer and the self-update exe.
 on:
   push:
     tags:
@@ -11,6 +8,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -27,70 +28,83 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Validate release version and notes
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Expected vMAJOR.MINOR.PATCH, got $tag" }
+          $version = $Matches[1]
+          $wails = Get-Content wails.json -Raw | ConvertFrom-Json
+          $package = Get-Content frontend/package.json -Raw | ConvertFrom-Json
+          $lock = Get-Content frontend/package-lock.json -Raw | ConvertFrom-Json
+          foreach ($value in @($wails.info.productVersion, $package.version, $lock.version, $lock.packages.''.version)) {
+            if ($value -ne $version) { throw "Version mismatch: tag $version, metadata $value" }
+          }
+          if (-not (Test-Path "docs/releases/$tag.md")) { throw "Missing release notes for $tag" }
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
-      - name: Install NSIS (for the Windows installer)
-        # windows-latest doesn't ship makensis; wails build -nsis skips the
-        # installer with a warning if it's absent. Chocolatey is preinstalled
-        # on GitHub-hosted Windows runners.
+      - name: Install NSIS
         run: choco install nsis -y --no-progress
 
       - name: Add NSIS to PATH
-        # choco installs NSIS to C:\Program Files (x86)\NSIS but doesn't
-        # refresh PATH for subsequent steps in the same job — wails would
-        # still warn 'makensis not found'. Append it to GITHUB_PATH so the
-        # NEXT step (wails build) sees makensis on PATH. (Don't try to run
-        # makensis in THIS step — GITHUB_PATH only applies to later steps.)
+        shell: pwsh
+        run: '"C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH'
+
+      - name: Install frontend
+        run: npm --prefix frontend ci
+
+      - name: Frontend regression checks
+        run: npm --prefix frontend test
+
+      - name: Build application and installer
+        run: wails build -nsis -nosyncgomod -ldflags "-X ash-wails/internal/app.Version=${{ steps.ver.outputs.version }} -X ash-wails/internal/app.Commit=${{ github.sha }} -X ash-wails/internal/app.BuildChannel=release"
+
+      - name: Go regression checks
+        run: go test -count=1 ./...
+
+      - name: Go static checks
+        run: go vet ./...
+
+      - name: Stage and verify release assets
         shell: pwsh
         run: |
-          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
-          Write-Host "NSIS added to PATH for subsequent steps"
-
-      - name: Resolve version
-        id: ver
-        shell: bash
-        run: |
-          # tag = vX.Y.Z → version = X.Y.Z
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION"
-
-      - name: Build Ash.exe + NSIS installer (versioned, release channel)
-        run: |
-          # -nsis generates the installer alongside the bare .exe.
-          wails build -nsis -ldflags "-X ash-wails/internal/app.Version=${{ steps.ver.outputs.version }} -X ash-wails/internal/app.Commit=${{ github.sha }} -X ash-wails/internal/app.BuildChannel=release"
-
-      - name: Stage assets
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path staging | Out-Null
-          $ver = "${{ steps.ver.outputs.version }}"
-          # Bare binary — the in-app self-updater downloads exactly this name.
-          Copy-Item "build\bin\Ash.exe" "staging\Ash.exe"
-          # Installer — friendlier name with the version. If wails skipped it
-          # (makensis missing), fail loudly so we notice instead of shipping a
-          # release with no installer.
-          if (-not (Test-Path "build\bin\Ash-amd64-installer.exe")) {
-            throw "NSIS installer not built — check the makensis install step"
+          $version = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force staging | Out-Null
+          $assets = @("build/bin/Ash.exe", "build/bin/Ash-amd64-installer.exe")
+          foreach ($asset in $assets) {
+            if (-not (Test-Path $asset)) { throw "Missing release asset: $asset" }
+            $file = Get-Item $asset
+            if ($file.Length -lt 1MB) { throw "Release asset is unexpectedly small: $asset" }
+            $productVersion = $file.VersionInfo.ProductVersion
+            if ($productVersion -ne $version -and $productVersion -ne "$version.0") {
+              throw "Wrong embedded version in ${asset}: $productVersion"
+            }
           }
-          Copy-Item "build\bin\Ash-amd64-installer.exe" "staging\Ash-Setup-v$ver.exe"
-          Get-ChildItem staging | ForEach-Object {
-            Write-Host "Asset: $($_.Name) — $($_.Length) bytes"
-          }
+          # Keep Ash.exe's name stable: existing installations use it to update.
+          Copy-Item "build/bin/Ash.exe" "staging/Ash.exe"
+          Copy-Item "build/bin/Ash-amd64-installer.exe" "staging/Ash-Setup-v$version.exe"
+          Get-ChildItem staging -Filter *.exe | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content staging/SHA256SUMS.txt -Encoding ascii
+          Get-ChildItem staging | ForEach-Object { Write-Host "$($_.Name): $($_.Length) bytes" }
 
-      - name: Create release + upload assets
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
-          # Both the bare .exe (self-update target) and the installer (fresh
-          # installs) ship in every release.
+          name: Ash ${{ github.ref_name }} — Gray
+          body_path: docs/releases/${{ github.ref_name }}.md
+          make_latest: "true"
           files: |
-            staging/Ash.exe
             staging/Ash-Setup-v*.exe
+            staging/Ash.exe
+            staging/SHA256SUMS.txt
           fail_on_unmatched_files: true

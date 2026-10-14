@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../../backend/core";
 
 export interface RunProcessResult {
   code: number | null;

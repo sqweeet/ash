@@ -8,17 +8,11 @@ import (
 	"strings"
 )
 
-// Fs ports Ash's src-tauri/src/fs.rs to Go. Every exported method is auto-bound
-// to the frontend (frontend/wailsjs/go/app/Fs.ts), and the Tauri shim
-// (src/lib/wails-shim.ts) routes invoke("read_text", …) → Fs.ReadText(…), so
-// the ~30 files that call invoke() need no edits.
-
 type Fs struct{}
 
 func NewFs() *Fs { return &Fs{} }
 
-// DirItem mirrors the Tauri DirItem shape (name + isDir + size) the frontend
-// already expects from list_dir.
+// DirItem is one explorer entry.
 type DirItem struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
@@ -26,8 +20,7 @@ type DirItem struct {
 	Size  int64  `json:"size"`
 }
 
-// ReadText returns the file contents, or nil if it doesn't exist (matches the
-// Tauri command's null-on-missing contract the settings/chat loaders rely on).
+// ReadText returns nil for missing files, as settings/chat loaders expect.
 func (Fs) ReadText(path string) (*string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -51,6 +44,22 @@ func (Fs) WriteText(path, contents string) error {
 	return os.WriteFile(path, []byte(contents), 0o644)
 }
 
+// CreateFile never truncates an existing file.
+func (Fs) CreateFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func (Fs) CreateDir(path string) error {
+	return os.MkdirAll(path, 0o755)
+}
+
 // DeletePath removes a file or directory (recursive for dirs). Missing is fine.
 func (Fs) DeletePath(path string) error {
 	err := os.RemoveAll(path)
@@ -62,7 +71,7 @@ func (Fs) DeletePath(path string) error {
 
 // ListDir lists one directory level: name, absolute path, is_dir, size.
 // Sorted dirs-first then alphabetical (case-insensitive); truncated to 1000
-// entries (matches Ash's fs.rs). The `path` field is absolute so the frontend
+// entries. The `path` field is absolute so the frontend
 // can recurse / open files without re-joining.
 func (Fs) ListDir(path string) ([]DirItem, error) {
 	entries, err := os.ReadDir(path)

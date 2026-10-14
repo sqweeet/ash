@@ -1,5 +1,11 @@
 /* ── xterm ─────────────────────────────────────────────── */
 
+/* xterm draws the caret. Its input helper must never add a native WebView2
+   caret while typing or moving between panes; keep the textarea for IME. */
+.xterm .xterm-helper-textarea {
+  caret-color: transparent;
+}
+
 /* Kill xterm.css's default black viewport background — it painted a
    black band wherever the row grid doesn't cover the container. */
 .xterm .xterm-viewport {

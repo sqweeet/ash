@@ -10,12 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Pty is a ConPTY-backed terminal session manager, ported to Wails from Ash's
-// src-tauri/src/pty.rs. The frontend (lib/pty.ts) drives it through the SAME
-// contract the Tauri app used: PtySpawn(id, cols, rows, cwd, program, args),
-// PtyWrite/PtyResize/PtyKill by id, and output streamed as Wails events named
-// "pty:data" ({id, data}) + "pty:exit" ({id}). That lets lib/pty.ts stay
-// byte-for-byte the same — only the import path of invoke/listen changes.
+// Pty manages terminal sessions and streams pty:data / pty:exit Wails events.
 type Pty struct {
 	ctx   context.Context
 	mu    sync.Mutex
@@ -30,8 +25,18 @@ func (p *Pty) startup(ctx context.Context) {
 	p.ctx = ctx
 }
 
-// PtySpawn mirrors the Tauri pty_spawn command. `id` is the frontend's pane id
-// (so events route back to the right session); program/args let the agent
+type PtyInfo struct {
+	Backend     string `json:"backend"`
+	BuildNumber uint32 `json:"buildNumber"`
+}
+
+// PtyBackend supplies xterm's platform-specific resize/reflow compatibility.
+func (p *Pty) PtyBackend() PtyInfo {
+	return platformPtyInfo()
+}
+
+// PtySpawn uses the frontend pane id to route terminal events.
+// program/args let the agent
 // spawn a specific shell, null = auto-detect (pwsh/powershell/cmd on Windows).
 func (p *Pty) PtySpawn(id string, cols, rows uint16, cwd string, program string, args []string) (string, error) {
 	if cols == 0 {
@@ -55,10 +60,16 @@ func (p *Pty) PtySpawn(id string, cols, rows uint16, cwd string, program string,
 	// Stream ConPTY output → "pty:data" ({id, data}). EOF → "pty:exit" ({id}).
 	go func() {
 		buf := make([]byte, 8192)
+		var decoder ptyOutputDecoder
+		emit := func(data string) {
+			if data != "" {
+				runtime.EventsEmit(p.ctx, "pty:data", map[string]string{"id": id, "data": data})
+			}
+		}
 		for {
 			n, err := proc.Read(buf)
 			if n > 0 {
-				runtime.EventsEmit(p.ctx, "pty:data", map[string]string{"id": id, "data": string(buf[:n])})
+				emit(decoder.decode(buf[:n]))
 			}
 			if err != nil {
 				if err == io.EOF || isPipeClosed(err) {
@@ -67,11 +78,17 @@ func (p *Pty) PtySpawn(id string, cols, rows uint16, cwd string, program string,
 				time.Sleep(20 * time.Millisecond) // transient — back off, don't spin
 			}
 		}
+		emit(decoder.flush())
 		proc.Close()
-		runtime.EventsEmit(p.ctx, "pty:exit", map[string]string{"id": id})
 		p.mu.Lock()
-		delete(p.procs, id)
+		current := p.procs[id] == proc
+		if current {
+			delete(p.procs, id)
+		}
 		p.mu.Unlock()
+		if current {
+			runtime.EventsEmit(p.ctx, "pty:exit", map[string]string{"id": id})
+		}
 	}()
 
 	return id, nil

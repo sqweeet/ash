@@ -82,7 +82,49 @@ export interface ThemePreset {
   theme: ITheme;
 }
 
+export const DEFAULT_THEME_ID = "gray";
+
 export const THEMES: ThemePreset[] = [
+  {
+    id: DEFAULT_THEME_ID,
+    label: "Gray",
+    // Neutral gray chrome, not Graphite's monochrome ANSI ramp. Accents stay
+    // recognizably colored, just quieter than Vercel Dark's saturated palette.
+    app: {
+      bg: "#181818",
+      surface: "#202020",
+      raise: "#2b2b2b",
+      border: "rgba(255,255,255,0.09)",
+      text: "#e4e4e4",
+      muted: "#ababab",
+      faint: "#818181",
+      icon: "#bdbdbd",
+      hover: "rgba(255,255,255,0.06)",
+    },
+    theme: {
+      background: "#202020",
+      foreground: "#dedede",
+      cursor: "#dedede",
+      cursorAccent: "#202020",
+      selectionBackground: "rgba(255,255,255,0.16)",
+      black: "#343434",
+      red: "#d78989",
+      green: "#a4bf91",
+      yellow: "#d4bd88",
+      blue: "#91aecb",
+      magenta: "#b39ac1",
+      cyan: "#8fbbbb",
+      white: "#dedede",
+      brightBlack: "#909090",
+      brightRed: "#e6a3a3",
+      brightGreen: "#b9d3a7",
+      brightYellow: "#e3cfa4",
+      brightBlue: "#acc6df",
+      brightMagenta: "#cbb2d7",
+      brightCyan: "#aad2d2",
+      brightWhite: "#f0f0f0",
+    },
+  },
   {
     id: "vercel-dark",
     label: "Vercel Dark",
@@ -469,7 +511,9 @@ export const THEMES: ThemePreset[] = [
 ];
 
 function presetOf(id: string): ThemePreset {
-  return THEMES.find((t) => t.id === id) ?? THEMES[0];
+  // Keep previews and existing Ash Gray preferences compatible with the rename.
+  const resolvedId = id === "ash-gray" ? DEFAULT_THEME_ID : id;
+  return THEMES.find((t) => t.id === resolvedId) ?? THEMES[0];
 }
 
 // ── light variants ─────────────────────────────────────────
@@ -543,22 +587,23 @@ function lightOf(p: ThemePreset): ThemePreset {
       cursor: app.text,
       cursorAccent: app.surface,
       selectionBackground: "rgba(0,0,0,0.14)",
-      black: hslToHex(h, 0.05, 0.25),
+      // A neutral base must not acquire a red tint from HSL's zero hue.
+      black: hslToHex(h, Math.min(s, 0.05), 0.25),
       red: darkenFor(t.red, 0.42, "#c62f3f"),
       green: darkenFor(t.green, 0.36, "#1e7d3c"),
       yellow: darkenFor(t.yellow, 0.38, "#9a6a00"),
       blue: darkenFor(t.blue, 0.42, "#1f6fd6"),
       magenta: darkenFor(t.magenta, 0.42, "#8a3fc0"),
       cyan: darkenFor(t.cyan, 0.36, "#0f7f8f"),
-      white: hslToHex(h, 0.05, 0.35),
-      brightBlack: hslToHex(h, 0.05, 0.45),
+      white: hslToHex(h, Math.min(s, 0.05), 0.35),
+      brightBlack: hslToHex(h, Math.min(s, 0.05), 0.45),
       brightRed: darkenFor(t.brightRed, 0.48, "#d64550"),
       brightGreen: darkenFor(t.brightGreen, 0.4, "#249447"),
       brightYellow: darkenFor(t.brightYellow, 0.44, "#b07d0a"),
       brightBlue: darkenFor(t.brightBlue, 0.48, "#3b82e0"),
       brightMagenta: darkenFor(t.brightMagenta, 0.48, "#9d55d1"),
       brightCyan: darkenFor(t.brightCyan, 0.42, "#159aad"),
-      brightWhite: hslToHex(h, 0.05, 0.1),
+      brightWhite: hslToHex(h, Math.min(s, 0.05), 0.1),
     },
   };
   lightCache.set(p.id, light);

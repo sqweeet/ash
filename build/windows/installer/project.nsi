@@ -49,16 +49,20 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 # Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
 
-!include "MUI.nsh"
+SetCompressor /SOLID lzma
+!include "MUI2.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_WELCOMEPAGE_TITLE "Welcome to Ash ${INFO_PRODUCTVERSION}"
+!define MUI_WELCOMEPAGE_TEXT "A terminal and AI workspace for Windows.$\r$\n$\r$\nSetup installs Ash with the darker Gray theme as the default for new profiles. Existing themes, settings, and chats are preserved.$\r$\n$\r$\nPlease close Ash before continuing."
+!define MUI_FINISHPAGE_TEXT "Ash ${INFO_PRODUCTVERSION} is installed.$\r$\n$\r$\nOpen Ash from the Start menu or desktop shortcut. You can change the Gray theme in Settings > Appearance."
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
-# !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
+!insertmacro MUI_PAGE_LICENSE "..\..\..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
@@ -89,20 +93,38 @@ Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
 
+# Never terminate a running terminal or remove its directory to upgrade it.
+# Opening an existing executable for append checks for the Windows image lock
+# without modifying its contents. Silent installs fail instead of killing Ash.
+!macro EnsureAppClosed PREFIX
+Function ${PREFIX}EnsureAppClosed
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 done
+    retry:
+        ClearErrors
+        FileOpen $0 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+        IfErrors blocked
+        FileClose $0
+        Goto done
+    blocked:
+        IfSilent cancel
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Please close Ash before continuing. Your terminals will not be closed automatically." IDRETRY retry
+    cancel:
+        SetErrorLevel 2
+        Abort
+    done:
+FunctionEnd
+!macroend
+!insertmacro EnsureAppClosed ""
+!insertmacro EnsureAppClosed "un."
+
 Section
     !insertmacro wails.setShellContext
+    Call EnsureAppClosed
 
     !insertmacro wails.webview2runtime
 
-    # Flat install is C:\Program Files\Ash. Wipe any previous tree first
-    # (old nested ash\ash / Ash\Ash — same path on case-insensitive NTFS).
-    RMDir /r "$PROGRAMFILES64\Ash"
-    Delete "$SMPROGRAMS\ash.lnk"
-    Delete "$DESKTOP\ash.lnk"
-    SetRegView 64
-    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ashash"
-    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AshAsh"
-
+    # Overwrite only files owned by Ash. Do not wipe the install folder or
+    # touch ~/.ash: upgrades must keep user files, chats, and preferences.
     SetOutPath $INSTDIR
 
     !insertmacro wails.files
@@ -118,10 +140,11 @@ SectionEnd
 
 Section "uninstall"
     !insertmacro wails.setShellContext
+    Call un.EnsureAppClosed
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
-    RMDir /r $INSTDIR
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -133,4 +156,5 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+    RMDir "$INSTDIR" # Remove only when empty; unrelated files remain.
 SectionEnd

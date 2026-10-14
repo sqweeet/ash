@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "../backend/dialog";
 
 import { Utility } from "../App";
 

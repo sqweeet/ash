@@ -1,8 +1,18 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../backend/core";
+import { listen } from "../backend/event";
 
 const dataHandlers = new Map<string, (data: string) => void>();
 const exitHandlers = new Map<string, () => void>();
+
+interface PtyBackendInfo {
+  backend: string;
+  buildNumber: number;
+}
+let backendInfo: Promise<PtyBackendInfo> | undefined;
+
+export function ptyBackend() {
+  return backendInfo ??= invoke<PtyBackendInfo>("pty_backend");
+}
 
 let initialized = false;
 
@@ -40,8 +50,21 @@ export const ptySpawn = (
   args: string[] | null = null,
 ) => invoke<string>("pty_spawn", { id, cols, rows, cwd, program, args });
 
-export const ptyWrite = (id: string, data: string) =>
-  invoke("pty_write", { id, data });
+// Wails dispatches calls concurrently. Keep each terminal's input in wire
+// order: notably, the DA reply must not overtake the OSC palette replies that
+// precede it, or TUIs can finish theme detection with an empty/partial palette.
+const pendingInput = new Map<string, Promise<unknown>>();
+export function ptyWrite(id: string, data: string): Promise<unknown> {
+  const send = () => invoke("pty_write", { id, data });
+  const previous = pendingInput.get(id) ?? Promise.resolve();
+  const next = previous.then(send, send);
+  pendingInput.set(id, next);
+  const cleanup = () => {
+    if (pendingInput.get(id) === next) pendingInput.delete(id);
+  };
+  void next.then(cleanup, cleanup);
+  return next;
+}
 
 export const ptyResize = (id: string, cols: number, rows: number) =>
   invoke("pty_resize", { id, cols, rows });

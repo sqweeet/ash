@@ -9,7 +9,7 @@
 // Polling every ~2s is robust against process spawns that don't change the
 // title (agy has no stable title pattern; title can be disabled on all three).
 // The title-change hook is an ADDITIONAL early trigger, not the sole signal.
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 import { sessionIds } from "./term";
 
 export interface AgentMatch {

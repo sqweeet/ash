@@ -20,8 +20,10 @@ type ptyProc struct {
 	out  io.ReadCloser
 }
 
-func (p *ptyProc) Read(buf []byte) (int, error)  { return p.out.Read(buf) }
-func (p *ptyProc) Write(b []byte) (int, error) { return p.in.Write(b) }
+func platformPtyInfo() PtyInfo { return PtyInfo{} }
+
+func (p *ptyProc) Read(buf []byte) (int, error) { return p.out.Read(buf) }
+func (p *ptyProc) Write(b []byte) (int, error)  { return p.in.Write(b) }
 
 // pid returns the root shell's OS process id. Used on non-Windows only for
 // shape parity — foreground-agent detection is Windows-only for now.

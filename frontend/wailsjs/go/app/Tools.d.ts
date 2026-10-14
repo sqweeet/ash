@@ -15,6 +15,8 @@ export function OpenDialog(arg1:string,arg2:boolean):Promise<string>;
 
 export function OpenIn(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
+export function OpenPath(arg1:string):Promise<void>;
+
 export function ResolveBash():Promise<string>;
 
 export function SshHosts():Promise<Array<string>>;

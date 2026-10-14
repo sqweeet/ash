@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -80,6 +81,15 @@ func (Tools) SshHosts() []string {
 		}
 	}
 	return out
+}
+
+func (Tools) OpenPath(path string) error {
+	for _, name := range []string{"xdg-open", "open"} {
+		if exe, err := exec.LookPath(name); err == nil {
+			return exec.Command(exe, path).Start()
+		}
+	}
+	return fmt.Errorf("no system opener")
 }
 
 func (Tools) OpenIn(app, path string, isDir bool) error {

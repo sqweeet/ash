@@ -1,10 +1,10 @@
-// Self-update against GitHub Releases. The Rust side (src-tauri) does the
+// Self-update against GitHub Releases. The Go backend (updater.go) does the
 // real work: CheckUpdate queries /releases/latest, DownloadUpdate streams the
 // Ash.exe asset to disk (emitting "update:progress" events), ApplyUpdate
 // swaps the binary in place and relaunches. This module wraps the invoke
 // calls + event stream into a tiny reactive store the UI subscribes to.
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../backend/core";
+import { listen } from "../backend/event";
 
 export type UpdateStage =
   | "idle"
@@ -147,7 +147,7 @@ const DEMO_RELEASE: UpdateReleaseInfo = {
     "- Self-update via binary swap (no installer)\n" +
     "- Frameless titlebar, ConPTY panes, agent engine\n\n" +
     "This is a DEMO release body — not a real update.",
-  url: "https://github.com/xn0tdev/ash/releases/tag/v1.2.0",
+  url: "https://github.com/sqweeet/ash/releases/tag/v1.2.0",
   downloadUrl: "",
   downloadSize: 22_700_000,
   assetName: "Ash.exe",

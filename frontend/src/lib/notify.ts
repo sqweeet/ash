@@ -2,13 +2,11 @@ import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
-} from "@tauri-apps/plugin-notification";
+} from "../backend/notification";
 import { getSettings } from "./settings";
 
 // Chimes + OS notifications for agent events. Audio is a plain <audio>
-// element (served from public/sounds); notifications go through the Tauri
-// notification plugin (the WebView's own Notification API doesn't surface
-// real OS toasts on Windows).
+// element; notifications use the native Wails runtime.
 
 type Cue = "done" | "confirm";
 
@@ -47,7 +45,7 @@ async function ensureNotifyPermission(): Promise<boolean> {
 async function osNotify(title: string, body: string) {
   if (!(await ensureNotifyPermission())) return;
   try {
-    sendNotification({ title, body });
+    await sendNotification({ title, body });
   } catch {
     // ignore — notification backend unavailable
   }
@@ -59,6 +57,3 @@ export function notifyAgentEvent(cue: Cue, title: string, body: string) {
   if (s.sounds) play(cue);
   if (s.notifications && !document.hasFocus()) osNotify(title, body);
 }
-
-// Ask for notification permission once, up front.
-ensureNotifyPermission();

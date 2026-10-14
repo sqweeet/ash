@@ -332,50 +332,6 @@
   color: var(--icon);
   flex-shrink: 0;
 }
-/* Agent brand discs are larger than the default 16px icon glyph and must not
-   be clipped by the slot — let them overflow symmetrically while staying
-   centered. overflow:visible keeps the round edge crisp. */
-.tab-icon:has(.agent-chip) {
-  width: auto;
-  overflow: visible;
-}
-
-/* Brand agent chips (detected CLI agents in a terminal tab).
-   Single agent → the logo floats with no background (clean, minimal).
-   Stack of 2+ → each logo sits on a squircle-tinted plate so the overlap
-   reads as separate avatars (solid fill = clean seam, no ring needed). */
-.agent-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-.agent-chip img {
-  display: block;
-  object-fit: contain;
-}
-/* Plates only appear inside a stack — a single detected agent has no bg. */
-.agent-pair .agent-chip {
-  border-radius: 6px;
-  corner-shape: squircle;
-  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
-}
-
-/* Avatar stack for a split tab holding 2+ detected agents: equal-size discs
-   overlap ~30% so every logo stays visible. Each disc after the first tucks
-   via a negative margin; z-index climbs left→right so the rightmost disc
-   paints cleanly over its neighbor (solid fill = no seam, no ring). */
-.agent-pair {
-  display: flex;
-  align-items: center;
-  flex: none;
-}
-.agent-pair .agent-chip.stacked {
-  margin-left: -6px;
-  position: relative;
-  z-index: 1;
-}
-
 /* 16px (fills the 16px column exactly → integer centering, no fractional
    sub-pixel margin) instead of 14px, which crushed the dense 24-grid icons. */
 .tab-icon svg {

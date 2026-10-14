@@ -77,7 +77,9 @@ export default function TerminalPane({
   }, [id]);
 
   useEffect(() => {
-    if (focused) getSession(id)?.term.focus();
+    const term = getSession(id)?.term;
+    if (focused) term?.focus();
+    else term?.blur();
   }, [focused, id]);
 
   return (

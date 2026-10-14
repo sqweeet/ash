@@ -22,14 +22,14 @@ import (
 // just not overwriting/deleting it), the new file is moved into place, and
 // the app is relaunched. On the next launch, Ash.exe.old is deleted.
 //
-// Release source of truth: https://github.com/xn0tdev/ash/releases/latest
+// Release source of truth: https://github.com/sqweeet/ash/releases/latest
 // The release asset must be named Ash.exe (uploaded by the release CI).
 type Updater struct {
 	ctx context.Context
 }
 
 const (
-	ghOwner    = "xn0tdev"
+	ghOwner    = "sqweeet"
 	ghRepo     = "ash"
 	assetName  = "Ash.exe"
 	oldSuffix  = ".old"
@@ -181,7 +181,7 @@ func (u *Updater) DownloadUpdate() (string, error) {
 					pct = int(written * 100 / total)
 				}
 				wruntime.EventsEmit(u.ctx, "update:progress", map[string]any{
-					"percent":   pct,
+					"percent":    pct,
 					"downloaded": written,
 					"total":      total,
 					"stage":      "downloading",

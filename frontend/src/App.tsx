@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "./backend/core";
+import { getCurrentWindow } from "./backend/window";
+import { open as openDialog } from "./backend/dialog";
+import { homeDir } from "./backend/path";
 
 import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
@@ -28,7 +28,7 @@ import { listChats, removeChat, clearAllChats } from "./lib/chat-store";
 import { discardSandbox } from "./lib/sandbox";
 import { importSession } from "./lib/agent-engine/import";
 import type { ImportedSessionMeta } from "./lib/agent-engine/import/types";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "./backend/opener";
 import {
   adjustFontSize,
   configureSessions,
@@ -1392,6 +1392,10 @@ export default function App() {
         if (tab) openWebPane(tab.id, paneId, url);
       },
       getCwd: () => activeWorkspaceRef.current?.path ?? null,
+      // Pi's fullscreen renderer requests SGR mouse input before entering raw
+      // mode. Older ConPTY drops that setup. Do not guess for unknown TUIs:
+      // sending mouse bytes to a keyboard-only app can corrupt its input.
+      usesSgrMouseInAltScreen: (id) => getAgentForTerm(id)?.id === "pi",
     });
   }, [closePane, setTitle, openWebPane]);
 
@@ -1584,8 +1588,8 @@ export default function App() {
         className={`rail${collapsed ? " collapsed" : ""}`}
         style={{ width: collapsed ? 0 : sidebarWidth }}
       >
-        <div className="rail-top" data-tauri-drag-region>
-          <div className="rail-brand" data-tauri-drag-region />
+        <div className="rail-top" data-window-drag>
+          <div className="rail-brand" data-window-drag />
           {/* Same Y as the sidebar toggle (rail-top strip); X = end of sidebar. */}
           {updateAvailable && (
             <button

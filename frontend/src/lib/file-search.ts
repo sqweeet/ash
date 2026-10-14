@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 import { runProcess } from "./agent-engine/tools/run-process";
 
 // Backs the composer's "@file" mention menu: a flat, gitignore-respecting list

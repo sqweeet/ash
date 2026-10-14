@@ -46,6 +46,34 @@ export namespace app {
 	        this.pid = source["pid"];
 	    }
 	}
+	export class GitDiff {
+	    added: number;
+	    removed: number;
+
+	    static createFrom(source: any = {}) {
+	        return new GitDiff(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.added = source["added"];
+	        this.removed = source["removed"];
+	    }
+	}
+	export class GitEntry {
+	    path: string;
+	    status: string;
+
+	    static createFrom(source: any = {}) {
+	        return new GitEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.status = source["status"];
+	    }
+	}
 	export class ProcessOutput {
 	    code?: number;
 	    stdout: string;
@@ -64,6 +92,20 @@ export namespace app {
 	        this.stderr = source["stderr"];
 	        this.timed_out = source["timed_out"];
 	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class PtyInfo {
+	    backend: string;
+	    buildNumber: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PtyInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.backend = source["backend"];
+	        this.buildNumber = source["buildNumber"];
 	    }
 	}
 	export class SandboxInfo {

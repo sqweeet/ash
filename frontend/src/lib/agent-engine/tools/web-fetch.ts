@@ -21,12 +21,17 @@ export const webFetchTool: Tool = {
   },
   async run(args, ctx) {
     const url: string = args.url;
+    try {
+      if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error();
+    } catch {
+      return { ok: false, output: "Expected an HTTP or HTTPS URL." };
+    }
     const res = await runProcess(
       "curl.exe",
       // Bind the URL with --url so a value starting with '-' isn't parsed as a
       // curl option (curl treats bare args as URLs but still option-parses a
       // leading '-').
-      ["-sSL", "--max-time", "18", "--url", url],
+      ["-sSL", "--proto", "=http,https", "--proto-redir", "=http,https", "--max-time", "18", "--url", url],
       ctx.cwd,
       { timeoutMs: TIMEOUT_MS, signal: ctx.signal },
     );

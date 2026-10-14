@@ -7,10 +7,6 @@ const MAX_OUTPUT = 12_000;
 // One-shot PowerShell for work that finishes by itself. Background terminals
 // are persistent PTYs and may prefer pwsh, so the system prompt tells the model
 // to use syntax compatible with Windows PowerShell in both execution paths.
-export async function hasBash(): Promise<boolean> {
-  return false;
-}
-
 function cap(s: string): string {
   return s.length > MAX_OUTPUT
     ? s.slice(0, MAX_OUTPUT) + `\n[truncated — ${s.length - MAX_OUTPUT} more chars]`

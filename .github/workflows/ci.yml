@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -19,15 +22,27 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
+      - name: Install frontend
+        run: npm --prefix frontend ci
+
+      - name: Frontend regression checks
+        run: npm --prefix frontend test
+
       - name: Build (dev version)
         run: wails build
+
+      - name: Go regression checks
+        run: go test -count=1 ./...
+
+      - name: Go static checks
+        run: go vet ./...
 
       - name: Verify binary
         shell: pwsh

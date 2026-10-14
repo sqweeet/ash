@@ -1,7 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "../backend/core";
+import { homeDir } from "../backend/path";
 
 import { Message } from "./agent-engine/types";
+import { toast } from "./toast";
 
 // Persistent agent chats — one JSON file per chat under ~/.ash/chats/, e.g.
 // ~/.ash/chats/<chatId>.json. Files (vs the old single localStorage blob):
@@ -52,7 +53,11 @@ function writeFile(chat: SavedChat) {
   const prev = writeChains.get(chat.chatId) ?? Promise.resolve();
   const next = prev
     .catch(() => {})
-    .then(() => invoke("write_text", { path, contents }).catch(() => {}));
+    .then(() => removed.has(chat.chatId) ? undefined : invoke("write_text", { path, contents }))
+    .catch((error) => {
+      console.error("Couldn't save chat:", error);
+      toast("Couldn't save chat to disk");
+    });
   writeChains.set(chat.chatId, next);
   // Drop the entry once this is the settled tail, so the map doesn't grow.
   void next.finally(() => {
@@ -139,7 +144,12 @@ export function removeChat(chatId: string) {
   removed.add(chatId);
   const i = chats.findIndex((c) => c.chatId === chatId);
   if (i >= 0) chats.splice(i, 1);
-  if (dir) invoke("delete_path", { path: fileFor(chatId) }).catch(() => {});
+  if (dir) void deleteFile(chatId).catch(() => toast("Couldn't delete chat from disk"));
+}
+
+async function deleteFile(chatId: string): Promise<void> {
+  await writeChains.get(chatId);
+  await invoke("delete_path", { path: fileFor(chatId) });
 }
 
 /** Delete EVERY saved chat on disk + drop the in-memory cache. Used by the
@@ -148,15 +158,16 @@ export async function clearAllChats(): Promise<void> {
   const ids = chats.map((c) => c.chatId);
   chats.forEach((c) => removed.add(c.chatId));
   chats = [];
+  localStorage.removeItem(LEGACY_KEY);
   if (!dir) return;
-  await Promise.all(
-    ids.map((id) => invoke("delete_path", { path: fileFor(id) }).catch(() => {})),
-  );
+  await Promise.all(ids.map(deleteFile));
 }
 
 /** Full reset: delete the on-disk app data (chats and settings) under
  * ~/.ash/ — skills are left alone. localStorage is cleared by the caller. */
 export async function resetAshData(): Promise<void> {
+  chats.forEach((chat) => removed.add(chat.chatId));
+  await Promise.all(writeChains.values());
   let base = "";
   try {
     base = (await homeDir()).replace(/[\\/]+$/, "") + "\\.ash";

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
-import hljs from "highlight.js";
+import { invoke } from "../backend/core";
+import { openPath } from "../backend/opener";
+import hljs from "highlight.js/lib/common";
+import powershell from "highlight.js/lib/languages/powershell";
+import dockerfile from "highlight.js/lib/languages/dockerfile";
 import "highlight.js/styles/github-dark.css";
 
 import vscodeIcon from "../assets/editors/vscode.svg";
@@ -10,6 +12,9 @@ import cursorIcon from "../assets/editors/cursor.svg";
 import explorerIcon from "../assets/editors/explorer-win.svg";
 import { toast } from "../lib/toast";
 import Spinner from "./Spinner";
+
+hljs.registerLanguage("powershell", powershell);
+hljs.registerLanguage("dockerfile", dockerfile);
 
 interface FileViewerProps {
   id: string;

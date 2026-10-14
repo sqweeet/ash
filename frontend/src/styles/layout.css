@@ -261,33 +261,52 @@ body.dragging .rail .sidebar {
 
 .head-right {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   height: 100%;
   gap: 3px;
-  padding-right: 4px;
+  /* Caption hit areas and their hover backgrounds reach the client edge. */
+  padding-right: 0;
 }
 
 .window-controls {
   display: flex;
+  flex-shrink: 0;
   height: 100%;
   margin-left: 8px;
 }
 
 .wc-btn {
-  width: 42px;
+  flex: 0 0 46px;
+  width: 46px;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
+  border-radius: 0;
   background: transparent;
-  color: var(--muted);
+  color: var(--text);
+  color: light-dark(#000, #fff);
   cursor: default;
+}
+
+.wc-icon {
+  display: block;
+  flex-shrink: 0;
+  /* Windows caption glyphs use a 10px cell inside the 46px hit area. */
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}
+
+.wc-btn:focus-visible {
+  outline-offset: -3px;
 }
 
 .wc-btn:hover {
   background: var(--hover);
-  color: var(--text);
 }
 
 .wc-close:hover {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 
 import { PinnedItem, SshHost, Tab, Utility, Workspace } from "../App";
 import { leaves } from "../lib/layout";
@@ -68,10 +68,6 @@ import {
   AgentDoneChatIcon, BroomIcon, CloseSquareIcon, GearIcon, NewTabIcon,
   SearchIcon,
 } from "./sidebar/icons";
-// TODO(future): per-agent brand icons (claude / antigravity / opencode / pi)
-// used to render here via ./sidebar/agent-icons. The brand artwork is dropped
-// for now, but the detection logic in lib/agent-detect.ts is kept so a later
-// feature can badge a terminal running a CLI agent without re-deriving it.
 
 // Pick the tab-row icon by what the tab holds. A chat pane is the star of a
 // tab — when one is present (even in a "chat left, terminal right" split) show

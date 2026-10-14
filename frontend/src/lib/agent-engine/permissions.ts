@@ -9,6 +9,8 @@ const RISKY_TOOLS = new Set([
   "write_file",
   // spawns an autonomous full-auto child — the user approves the delegation
   "agent",
+  "spawn_agents",
+  "run_workflow",
   "stop_agent",
 ]);
 

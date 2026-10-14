@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "../backend/window";
+import WindowControls from "./WindowControls";
 
 const win = getCurrentWindow();
 
@@ -31,8 +32,7 @@ export default function TitleBar({
     // During an OS window-border drag the webview resizes every frame →
     // terminal ResizeObserver → per-frame fit(). Mark the body `resizing` for
     // the duration so TerminalPane defers to a single trailing fit. Debounced
-    // on the JS resize event (fires continuously) plus the Tauri onResized
-    // (fires at the OS level).
+    // on the webview resize event.
     let resizeTimer = 0;
     const onJsResize = () => {
       document.body.classList.add("resizing");
@@ -57,13 +57,13 @@ export default function TitleBar({
   return (
     <header
       className={`main-head${sidebarOpen ? "" : " with-toggle"}`}
-      data-tauri-drag-region
+      data-window-drag
     >
-      <span className="head-title" data-tauri-drag-region>
+      <span className="head-title" data-window-drag>
         {title}
       </span>
       {workspaceName && (
-        <span className="head-ws" data-tauri-drag-region>
+        <span className="head-ws" data-window-drag>
           {workspaceName}
           {branch && (
             <>
@@ -87,37 +87,15 @@ export default function TitleBar({
           )}
         </span>
       )}
-      <div className="head-spacer" data-tauri-drag-region />
+      <div className="head-spacer" data-window-drag />
       <div className="head-right">
         {!isMac && (
-        <div className="window-controls">
-          <button className="wc-btn" title="Minimize" onClick={() => win.minimize()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14" />
-            </svg>
-          </button>
-          <button
-            className="wc-btn"
-            title={maximized ? "Restore" : "Maximize"}
-            onClick={() => win.toggleMaximize()}
-          >
-            {maximized ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="5" y="8.5" width="10.5" height="10.5" rx="2.4" />
-                <path d="M8.5 8.5V6.5A1.5 1.5 0 0 1 10 5h7.5A1.5 1.5 0 0 1 19 6.5V14a1.5 1.5 0 0 1-1.5 1.5H16" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="5" y="5" width="14" height="14" rx="2.6" />
-              </svg>
-            )}
-          </button>
-          <button className="wc-btn wc-close" title="Close" onClick={() => win.close()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 5l14 14M19 5L5 19" />
-            </svg>
-          </button>
-        </div>
+          <WindowControls
+            maximized={maximized}
+            onMinimize={() => win.minimize()}
+            onToggleMaximize={() => win.toggleMaximize()}
+            onClose={() => win.close()}
+          />
         )}
       </div>
     </header>

@@ -3,25 +3,47 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 
-	"github.com/UserExistsError/conpty"
+	"ash-wails/internal/conpty"
+	"golang.org/x/sys/windows"
 )
 
-// ptyProc wraps a single ConPTY session. Compared to the raw CreatePseudoConsole
-// dance in pty_windows_raw.go (kept for reference), this is the Go DX payoff:
-// a battle-tested crate does the Win API plumbing and we get a clean
-// Read/Write/Resize/Close surface — a few lines vs ~200 of pty.rs.
+// ptyProc wraps one Windows ConPTY session.
 type ptyProc struct {
-	proc *conpty.ConPty
+	proc      *conpty.Session
+	closeOnce sync.Once
+	closeErr  error
 }
 
-func (p *ptyProc) Read(buf []byte) (int, error)  { return p.proc.Read(buf) }
-func (p *ptyProc) Write(b []byte) (int, error) { return p.proc.Write(b) }
+func platformPtyInfo() PtyInfo {
+	return PtyInfo{Backend: "conpty", BuildNumber: windows.RtlGetVersion().BuildNumber}
+}
+
+// Ash hosts xterm regardless of which terminal (or automation) launched it.
+// In particular, never forward a launcher's TERM=dumb to interactive shells.
+// Build a child-only environment so commands outside the PTY are unaffected.
+func ptyEnvironment(inherited []string) []string {
+	env := make([]string, 0, len(inherited)+2)
+	for _, entry := range inherited {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(key, "TERM") || strings.EqualFold(key, "COLORTERM") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+}
+
+func (p *ptyProc) Read(buf []byte) (int, error) { return p.proc.Read(buf) }
+func (p *ptyProc) Write(b []byte) (int, error)  { return p.proc.Write(b) }
 
 // pid returns the root shell's OS process id — the anchor for walking the
 // process tree to find the foreground agent (claude.exe / agy.exe / …)
@@ -62,13 +84,13 @@ func openConPTY(cwd string, cols, rows uint16, program string, args []string) (*
 		cmdLine = "\"" + shell[0] + "\""
 	}
 	workDir := resolveWorkDir(cwd)
-	opts := []conpty.ConPtyOption{
-		conpty.ConPtyDimensions(int(cols), int(rows)),
-	}
-	if workDir != "" {
-		opts = append(opts, conpty.ConPtyWorkDir(workDir))
-	}
-	c, err := conpty.Start(cmdLine, opts...)
+	c, err := conpty.Start(conpty.Options{
+		CommandLine: cmdLine,
+		Directory:   workDir,
+		Environment: ptyEnvironment(os.Environ()),
+		Columns:     cols,
+		Rows:        rows,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("conpty start: %w", err)
 	}
@@ -76,17 +98,25 @@ func openConPTY(cwd string, cols, rows uint16, program string, args []string) (*
 }
 
 func (p *ptyProc) resize(cols, rows uint16) error {
-	return p.proc.Resize(int(cols), int(rows))
+	return p.proc.Resize(cols, rows)
 }
 
 func (p *ptyProc) Close() error {
-	if p.proc != nil {
-		return p.proc.Close()
-	}
-	return nil
+	p.closeOnce.Do(func() {
+		if p.proc != nil {
+			p.closeErr = p.proc.Close()
+		}
+	})
+	return p.closeErr
 }
 
-func isPipeClosed(err error) bool { return err == io.EOF }
+func isPipeClosed(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, windows.ERROR_BROKEN_PIPE) ||
+		errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED) ||
+		errors.Is(err, windows.ERROR_NO_DATA) ||
+		errors.Is(err, windows.ERROR_INVALID_HANDLE)
+}
 
 func findShell() []string {
 	// pwsh preferred, powershell fallback, cmd last resort — matches Ash's

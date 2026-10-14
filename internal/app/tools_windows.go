@@ -10,12 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-)
 
-// Tools ports Ash's src-tauri/src/tools.rs (Windows-only behavior — matches
-// the AGENTS.md constraint that the backend assumes Windows). detect_bins,
-// ssh_hosts, open_in, resolve_bash, find_editors are all simple PATH/filesystem
-// probes or a single process spawn.
+	"golang.org/x/sys/windows"
+)
 
 type Tools struct{}
 
@@ -27,7 +24,7 @@ var toolsCtx context.Context
 
 // DetectBins returns the subset of `names` that exist on PATH. Always returns
 // a non-nil slice (empty = []); a nil slice would serialize to JSON `null` in
-// Wails and crash the frontend's .map (Tauri's Vec serializes to []).
+// Wails and crash the frontend's .map.
 func (Tools) DetectBins(names []string) []string {
 	out := []string{}
 	for _, n := range names {
@@ -117,6 +114,19 @@ func (Tools) SshHosts() []string {
 		}
 	}
 	return out
+}
+
+// OpenPath uses the file's default Windows association, without a command shell.
+func (Tools) OpenPath(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	file, err := windows.UTF16PtrFromString(abs)
+	if err != nil {
+		return err
+	}
+	return windows.ShellExecute(0, nil, file, nil, nil, windows.SW_SHOWNORMAL)
 }
 
 // OpenIn launches an external app for a path: "explorer" reveals/opens it,

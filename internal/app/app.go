@@ -3,11 +3,14 @@ package app
 import (
 	"context"
 	"embed"
+	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Build-time vars (set via -ldflags "-X ash-wails/internal/app.Version=...").
@@ -25,18 +28,19 @@ var (
 // App is the root struct Wails binds to the frontend. Sub-systems (PTY, fs,
 // git, tools, sandbox, updater) hang off it so a single OnStartup feeds ctx
 // into each, and a single OnShutdown tears them down. The frontend calls
-// their methods directly via the auto-generated bindings
-// (frontend/wailsjs/go/...), OR through the Tauri-compat shim
-// (src/shim/core.ts) which routes invoke("read_text", …) → Fs.ReadText(…).
+// their methods through frontend/src/backend and generated Wails bindings.
 type App struct {
-	ctx     context.Context
-	pty     *Pty
-	fs      *Fs
-	git     *Git
-	tools   *Tools
-	process *Process
-	sandbox *Sandbox
-	updater *Updater
+	ready      atomic.Bool
+	closing    atomic.Bool
+	allowClose atomic.Bool
+	ctx        context.Context
+	pty        *Pty
+	fs         *Fs
+	git        *Git
+	tools      *Tools
+	process    *Process
+	sandbox    *Sandbox
+	updater    *Updater
 }
 
 func NewApp() *App {
@@ -73,6 +77,26 @@ func (a *App) AppInfo() map[string]string {
 	}
 }
 
+// Ready enables close interception only after the frontend subscribed.
+func (a *App) Ready() { a.ready.Store(true) }
+
+func (a *App) Close() {
+	a.allowClose.Store(true)
+	runtime.Quit(a.ctx)
+}
+
+func (a *App) beforeClose(ctx context.Context) bool {
+	if !a.ready.Load() || a.allowClose.Load() {
+		return false
+	}
+	if a.closing.CompareAndSwap(false, true) {
+		runtime.EventsEmit(ctx, "app:close-requested")
+		// A crashed frontend must never make the native window impossible to close.
+		time.AfterFunc(2*time.Second, a.Close)
+	}
+	return true
+}
+
 func (a *App) shutdown(ctx context.Context) {
 	a.pty.shutdown(ctx)
 }
@@ -85,10 +109,7 @@ func (a *App) shutdown(ctx context.Context) {
 func Run(assets embed.FS) error {
 	a := NewApp()
 
-	// Frameless: the React app draws its own titlebar (drag via
-	// --wails-draggable:drag in CSS, the same model as Tauri's
-	// data-tauri-drag-region). Every backend struct is bound here so its
-	// exported methods become typed TS calls in frontend/wailsjs/go/....
+	// React draws the titlebar; Wails handles native window dragging.
 	return wails.Run(&options.App{
 		Title:     "Ash",
 		Width:     1180,
@@ -98,8 +119,8 @@ func Run(assets embed.FS) error {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		// near-black to match vercel-dark — avoids a white flash pre-paint.
-		BackgroundColour: &options.RGBA{R: 10, G: 10, B: 10, A: 255},
+		// Match Gray's default chrome before the webview's first paint.
+		BackgroundColour: &options.RGBA{R: 24, G: 24, B: 24, A: 255},
 		Frameless:        true,
 		// Wails frameless drag: an element with the CSS var
 		// (--wails-draggable: drag) becomes a window drag handle. The property
@@ -109,8 +130,9 @@ func Run(assets embed.FS) error {
 		CSSDragValue:    "drag",
 		OnStartup:       a.startup,
 		OnShutdown:      a.shutdown,
+		OnBeforeClose:   a.beforeClose,
 		Bind: []interface{}{
-			a,         // App (root) — AppInfo
+			a,         // App (root) — AppInfo / Notify
 			a.pty,     // PtySpawn / PtyWrite / PtyResize / PtyKill
 			a.fs,      // ReadText / WriteText / DeletePath / ListDir / HomeDir
 			a.git,     // Branch / Status / DiffStat

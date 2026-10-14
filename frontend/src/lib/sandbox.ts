@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../backend/core";
 
 // Safe-mode sandboxes: one filtered project copy per owner chat, shared by the
 // writing background agents it spawns. The real project is untouched until the

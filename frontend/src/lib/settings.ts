@@ -1,8 +1,8 @@
 import type { ITheme } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from "../backend/core";
+import { homeDir } from "../backend/path";
 import { toast } from "./toast";
-import { FONTS, THEMES, resolvedPreset } from "./themes";
+import { DEFAULT_THEME_ID, FONTS, THEMES, resolvedPreset } from "./themes";
 import type { ThinkingFormat } from "./agent-engine/thinking-config";
 // Re-exported so existing `from "./settings"` importers (SettingsModal) keep working.
 export { FONTS, THEMES };
@@ -120,7 +120,7 @@ export interface Settings {
 export const DEFAULT_FONT_SIZE = 13;
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: "vercel-dark",
+  theme: DEFAULT_THEME_ID,
   themeLight: false,
   font: "geist-mono",
   fontSize: DEFAULT_FONT_SIZE,
@@ -318,13 +318,11 @@ function mergeParsed(parsed: any): Settings {
   // migrate older defaults to the current, slimmer one
   if (merged.sidebarWidth === 168 || merged.sidebarWidth === 216)
     merged.sidebarWidth = DEFAULT_SETTINGS.sidebarWidth;
-  // removed themes follow their replacement
-  if (
-    merged.theme === "catppuccin-mocha" ||
-    merged.theme === "tokyo-night" ||
-    merged.theme === "dracula"
-  )
-    merged.theme = "vercel-dark";
+  // Ash Gray was renamed to Gray. Preserve all other saved preferences.
+  if (merged.theme === "ash-gray") merged.theme = DEFAULT_THEME_ID;
+  // Removed/unknown presets use the current default; existing choices stay put.
+  if (!THEMES.some((t) => t.id === merged.theme))
+    merged.theme = DEFAULT_THEME_ID;
   return merged;
 }
 

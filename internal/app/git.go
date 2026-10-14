@@ -1,109 +1,98 @@
 package app
 
 import (
-	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
-
-// Git ports Ash's src-tauri/src/git.rs. Ash reads git state either from .git/HEAD
-// directly or by shelling out — the shell-out path is simpler and portable, so
-// we use it for all three commands. Each runs with cwd = the workspace path so
-// it operates on the right repo.
 
 type Git struct{}
 
 func NewGit() *Git { return &Git{} }
 
-// gitRun runs `git args…` in dir and returns trimmed stdout.
+// Preserve whitespace: porcelain -z paths can contain spaces and newlines.
 func gitRun(dir string, args ...string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		return "", nil
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	// The branch/status UI polls git periodically. A GUI binary must hide these
-	// one-shot child processes or Windows briefly flashes a console every poll.
 	hideProcessWindow(cmd)
 	out, err := cmd.Output()
-	if err != nil {
-		// git exits non-zero outside a repo / with no commits — surface "" so
-		// the frontend treats it as "no info" rather than erroring the UI.
-		if _, ok := err.(*exec.ExitError); ok {
-			return "", nil
-		}
-		return "", err
+	if _, ok := err.(*exec.ExitError); ok {
+		return "", nil // not a repository / no commits yet
 	}
-	return strings.TrimSpace(string(out)), nil
+	return string(out), err
 }
 
-// Branch returns the current branch name (or "" outside a repo / detached).
 func (Git) Branch(dir string) (string, error) {
-	if dir == "" {
-		return "", nil
-	}
-	// fast path: not a git repo → no git invocation
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", nil
-	}
-	b, err := gitRun(dir, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return "", err
-	}
-	return b, nil
+	branch, err := gitRun(dir, "branch", "--show-current")
+	return strings.TrimSpace(branch), err
 }
 
-// Status returns porcelain output the frontend parses into changed/added/etc
-// counts. Matches the shape of Ash's git_status command.
-func (Git) Status(dir string) (string, error) {
-	if dir == "" {
-		return "", nil
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", nil
-	}
-	return gitRun(dir, "status", "--porcelain")
+type GitEntry struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
 }
 
-// DiffStat returns `git diff --stat` output for the sidebar's per-file change
-// summary line.
-func (Git) DiffStat(dir string) (string, error) {
-	if dir == "" {
-		return "", nil
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", nil
-	}
-	return gitRun(dir, "diff", "--stat")
-}
-
-// repoRoot resolves the .git root for a path (used by callers that need the
-// repo-scoped cwd). Kept here so future tools can share it.
-func repoRoot(path string) string {
-	if abs, err := filepath.Abs(path); err == nil {
-		dir := abs
-		for {
-			if _, err := osStat(dir + "/.git"); err == nil {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
+func parseGitStatus(root, output string) []GitEntry {
+	entries := []GitEntry{}
+	parts := strings.Split(output, "\x00")
+	for i := 0; i < len(parts); i++ {
+		p := parts[i]
+		if len(p) < 4 {
+			continue
+		}
+		status := p[0]
+		if p[1] != ' ' && p[1] != '?' {
+			status = p[1]
+		}
+		if status == '?' {
+			status = 'A'
+		}
+		entries = append(entries, GitEntry{filepath.Join(root, p[3:]), string(status)})
+		// -z emits destination first, followed by the old path for renames/copies.
+		if strings.ContainsAny(p[:2], "RC") {
+			i++
 		}
 	}
-	return ""
+	return entries
 }
 
-// osStat is a tiny indirection so tests could swap it; matches Ash's style of
-// keeping filesystem probes mockable.
-func osStat(path string) (osFileInfo, error) {
-	return osStatReal(path)
+func (Git) Status(dir string) ([]GitEntry, error) {
+	root, err := gitRun(dir, "rev-parse", "--show-toplevel")
+	if err != nil || strings.TrimSpace(root) == "" {
+		return []GitEntry{}, err
+	}
+	output, err := gitRun(dir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	return parseGitStatus(strings.TrimSpace(root), output), err
 }
 
-type osFileInfo interface{}
+type GitDiff struct {
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
+}
 
-// (real implementation lives in fs.go-adjacent helpers if needed; shell-out
-// git doesn't require it, so this stays a placeholder.)
-func osStatReal(path string) (osFileInfo, error) {
-	return nil, fmt.Errorf("osStatReal not used")
+func parseGitDiff(output string) GitDiff {
+	var diff GitDiff
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		added, _ := strconv.Atoi(fields[0])
+		removed, _ := strconv.Atoi(fields[1])
+		diff.Added += added
+		diff.Removed += removed
+	}
+	return diff
+}
+
+func (Git) DiffStat(dir string) (GitDiff, error) {
+	output, err := gitRun(dir, "diff", "--numstat")
+	return parseGitDiff(output), err
 }
