@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.1
+
+### Sidebar
+
+- Show the mark of the CLI agent running in a terminal (Claude Code, Codex, Pi, OpenCode) in the sidebar's single icon color.
+- Add a second line to agent tabs with the agent's working folder, read from the agent process itself, so a `cd` before launch is reflected.
+- In a linked git worktree, show the main repository and the worktree's branch instead of the worktree path.
+- Detect Codex (`codex.exe`, and the older `codex-<target>.exe` binary name).
+- Add a tab context menu with Rename, Pin, and Close. An unchanged rename no longer pins the title.
+- Show the pane count on split tabs that run an agent.
+- Restyle all context menus to match the composer's menus.
+
+### Terminal
+
+- Let the scrollbar gutter fill the terminal's right inset instead of adding padding on top, and hide its ruler outline.
+
 ## 1.2.0
 
 ### Appearance

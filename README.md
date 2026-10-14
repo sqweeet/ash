@@ -6,11 +6,11 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/sqweeet/ash/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/sqweeet/ash/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/sqweeet/ash?style=flat-square&color=666666)](LICENSE)
 
-**[Download the Windows installer](https://github.com/sqweeet/ash/releases/download/v1.2.0/Ash-Setup-v1.2.0.exe)** · [What's new](CHANGELOG.md) · [All releases](https://github.com/sqweeet/ash/releases)
+**[Download the Windows installer](https://github.com/sqweeet/ash/releases/download/v1.2.1/Ash-Setup-v1.2.1.exe)** · [What's new](CHANGELOG.md) · [All releases](https://github.com/sqweeet/ash/releases)
 
 ## Install
 
-**Recommended:** run `Ash-Setup-v1.2.0.exe`. Setup installs Ash to `C:\Program Files\Ash`, adds Start-menu and desktop shortcuts, and installs WebView2 if it is missing. Close Ash before upgrading; Setup does not terminate your terminals or overwrite your saved preferences.
+**Recommended:** run `Ash-Setup-v1.2.1.exe`. Setup installs Ash to `C:\Program Files\Ash`, adds Start-menu and desktop shortcuts, and installs WebView2 if it is missing. Close Ash before upgrading; Setup does not terminate your terminals or overwrite your saved preferences.
 
 New profiles start with **Gray**, a darker neutral theme with soft, recognizable terminal colors. Existing theme choices are preserved. Change themes in **Settings → Appearance**.
 

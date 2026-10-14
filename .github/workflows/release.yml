@@ -101,7 +101,7 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          name: Ash ${{ github.ref_name }} — Gray
+          name: Ash ${{ github.ref_name }}
           body_path: docs/releases/${{ github.ref_name }}.md
           make_latest: "true"
           files: |
