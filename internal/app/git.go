@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -95,4 +96,83 @@ func parseGitDiff(output string) GitDiff {
 func (Git) DiffStat(dir string) (GitDiff, error) {
 	output, err := gitRun(dir, "diff", "--numstat")
 	return parseGitDiff(output), err
+}
+
+// GitWorktree is a linked worktree (`git worktree add`, Claude Code's
+// .claude/worktrees, …) that a folder belongs to.
+type GitWorktree struct {
+	// Name is the worktree's admin name (.git/worktrees/<name>).
+	Name string `json:"name"`
+	// Branch is the checked-out branch; "" when HEAD is detached.
+	Branch string `json:"branch"`
+	// Repo is the main checkout the worktree was created from.
+	Repo string `json:"repo"`
+}
+
+// linkedWorktree returns the linked worktree containing dir, or nil when dir
+// is in a main checkout or outside any repo. It reads the .git file and HEAD
+// directly instead of spawning git: the agent poll calls it every 2s.
+func linkedWorktree(dir string) *GitWorktree {
+	if dir == "" {
+		return nil
+	}
+	for d := filepath.Clean(dir); ; {
+		info, err := os.Lstat(filepath.Join(d, ".git"))
+		if err == nil {
+			if info.IsDir() {
+				return nil // main checkout
+			}
+			return worktreeFromGitFile(d)
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return nil
+		}
+		d = parent
+	}
+}
+
+// worktreeFromGitFile resolves a checkout whose .git is a "gitdir: …" file.
+// Submodules use the same file but point into .git/modules, so only a gitdir
+// under a "worktrees" folder counts.
+func worktreeFromGitFile(top string) *GitWorktree {
+	raw, err := os.ReadFile(filepath.Join(top, ".git"))
+	if err != nil {
+		return nil
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir:")
+	if !ok {
+		return nil
+	}
+	gitdir = filepath.FromSlash(strings.TrimSpace(gitdir))
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(top, gitdir)
+	}
+	gitdir = filepath.Clean(gitdir)
+	if !strings.EqualFold(filepath.Base(filepath.Dir(gitdir)), "worktrees") {
+		return nil
+	}
+
+	wt := &GitWorktree{Name: filepath.Base(gitdir)}
+	// HEAD is "ref: refs/heads/<branch>" on a branch, a bare commit id when detached.
+	if head, err := os.ReadFile(filepath.Join(gitdir, "HEAD")); err == nil {
+		if b, ok := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: refs/heads/"); ok {
+			wt.Branch = b
+		}
+	}
+	// commondir points at the shared .git ("../.."); fall back to the layout
+	// git always uses: <repo>/.git/worktrees/<name>.
+	common := filepath.Dir(filepath.Dir(gitdir))
+	if c, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+		p := filepath.FromSlash(strings.TrimSpace(string(c)))
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(gitdir, p)
+		}
+		common = filepath.Clean(p)
+	}
+	wt.Repo = common
+	if strings.EqualFold(filepath.Base(common), ".git") {
+		wt.Repo = filepath.Dir(common) // a bare repo has no checkout to strip to
+	}
+	return wt
 }

@@ -525,6 +525,71 @@
   font-size: 13px;
 }
 
+/* Title (or rename field) stacked over the optional subtitle line. */
+.tab-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tab-lines > .tab-title,
+.tab-lines > .tab-rename {
+  flex: none;
+}
+
+/* A terminal running a CLI agent: title on top, its folder underneath. */
+.tab.two-line {
+  height: 40px;
+}
+
+.tab-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--faint);
+}
+
+/* The path ellipsizes at its START so the folder name — the part that tells
+   two agent tabs apart — stays visible ("…/Desktop/app"). The rtl box puts
+   the overflow on the left; the <bdi> keeps the path itself left-to-right.
+   It gives up its width before the worktree badge does. */
+.tab-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Linked git worktree the agent works in: branch glyph + branch name. */
+.tab-wt {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  max-width: 60%;
+  color: var(--muted);
+}
+
+.tab-wt svg {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+}
+
+.tab-wt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Small count badge shown when a tab holds more than one pane (a split).
    Sits just before the close button; muted so it reads as metadata, not a
    notification. Mirrors the workspace ws-count style. */

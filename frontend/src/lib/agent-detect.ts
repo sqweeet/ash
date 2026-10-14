@@ -15,10 +15,28 @@ import { sessionIds } from "./term";
 export interface AgentMatch {
   /** Stable id from AGENT_PROCESSES (claude / antigravity / opencode). */
   id: string;
+  /** The agent process's working folder; "" when it couldn't be read. */
+  cwd: string;
+  /** The linked git worktree cwd is in; null in a main checkout / no repo. */
+  worktree: AgentWorktree | null;
 }
+
+export interface AgentWorktree {
+  /** Admin name (.git/worktrees/<name>). */
+  name: string;
+  /** Checked-out branch; "" when detached. */
+  branch: string;
+  /** The main checkout the worktree was created from. */
+  repo: string;
+}
+
+const sameWorktree = (a: AgentWorktree | null, b: AgentWorktree | null) =>
+  a === b || (!!a && !!b && a.name === b.name && a.branch === b.branch && a.repo === b.repo);
 
 interface AgentProcess {
   bin: string;
+  /** Other image names the same agent ships as. */
+  alt?: RegExp;
   id: string;
   /** Human label shown as the tab title base when the agent is detected. */
   label: string;
@@ -29,6 +47,9 @@ const AGENT_PROCESSES: AgentProcess[] = [
   { bin: "agy.exe", id: "antigravity", label: "Antigravity" },
   { bin: "opencode.exe", id: "opencode", label: "OpenCode" },
   { bin: "pi.exe", id: "pi", label: "Pi" },
+  // npm's node shim launches the native binary: vendor/<triple>/codex/codex.exe,
+  // or codex-x86_64-pc-windows-msvc.exe in older releases.
+  { bin: "codex.exe", alt: /^codex-[\w-]+\.exe$/, id: "codex", label: "Codex" },
 ];
 
 const AGENT_BY_ID = new Map(AGENT_PROCESSES.map((p) => [p.id, p]));
@@ -43,23 +64,28 @@ function notify() {
   listeners.forEach((fn) => fn());
 }
 
-function matchName(name: string): AgentMatch | null {
+function matchName(name: string): AgentProcess | null {
   if (!name) return null;
   const lower = name.toLowerCase();
-  const hit = AGENT_PROCESSES.find((p) => p.bin === lower);
-  return hit ? { id: hit.id } : null;
+  return AGENT_PROCESSES.find((p) => p.bin === lower || p.alt?.test(lower)) ?? null;
 }
 
 /** Ask the backend for the foreground process of one terminal and update the
  *  store if the match changed. Safe to call repeatedly. */
 async function detectOne(id: string): Promise<void> {
   let name = "";
+  let cwd = "";
+  let worktree: AgentWorktree | null = null;
   try {
-    const res = await invoke<{ name: string; pid: number }>(
-      "pty_foreground_process",
-      { id },
-    );
+    const res = await invoke<{
+      name: string;
+      pid: number;
+      cwd?: string;
+      worktree?: AgentWorktree | null;
+    }>("pty_foreground_process", { id });
     name = res?.name ?? "";
+    cwd = res?.cwd ?? "";
+    worktree = res?.worktree ?? null;
   } catch {
     // PTY gone or binding unavailable — clear any stale match.
     if (matches.has(id)) {
@@ -68,12 +94,21 @@ async function detectOne(id: string): Promise<void> {
     }
     return;
   }
-  const matched = matchName(name);
+  const hit = matchName(name);
   const prev = matches.get(id);
-  if (matched && prev?.id === matched.id) return; // unchanged
-  if (!matched && !prev) return; // still no agent
-  if (matched) matches.set(id, matched);
-  else matches.delete(id);
+  if (!hit && !prev) return; // still no agent
+  if (!hit) {
+    matches.delete(id);
+    notify();
+    return;
+  }
+  // Same agent but a one-off failed cwd read: keep the folder it had.
+  if (!cwd && prev?.id === hit.id) {
+    cwd = prev.cwd;
+    worktree = prev.worktree;
+  }
+  if (prev?.id === hit.id && prev.cwd === cwd && sameWorktree(prev.worktree, worktree)) return; // unchanged
+  matches.set(id, { id: hit.id, cwd, worktree });
   notify();
 }
 

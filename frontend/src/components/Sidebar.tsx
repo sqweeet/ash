@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../backend/core";
+import { homeDir } from "../backend/path";
 
 import { PinnedItem, SshHost, Tab, Utility, Workspace } from "../App";
 import { leaves } from "../lib/layout";
 import { AgentDef } from "../lib/agents";
 import { SectionToggles } from "../lib/settings";
+import { tildePath } from "../lib/tab-utils";
 import { getAgentStatus, onAgentStatusChange } from "../lib/agent-status";
-import { getAgentForTerm, onAgentDetectChange } from "../lib/agent-detect";
+import { AgentMatch, getAgentForTerm, onAgentDetectChange } from "../lib/agent-detect";
 import {
   getBackgroundTerms,
   isBackgroundTerm,
@@ -66,8 +68,30 @@ import {
   WebTabIcon, PinIcon, AgentTabIcon, NewAgentIcon, AgentWorkingIcon,
   AgentDoneIcon, SessionTermIcon, BotIcon, CommandIcon, PlusIcon,
   AgentDoneChatIcon, BroomIcon, CloseSquareIcon, GearIcon, NewTabIcon,
-  SearchIcon,
+  SearchIcon, ClaudeLogoIcon, CodexLogoIcon, PiLogoIcon, OpenCodeLogoIcon,
+  RenameIcon,
 } from "./sidebar/icons";
+
+// Detected CLI agent id → its mark. Agents without one (Antigravity) keep
+// the terminal icon.
+const CLI_AGENT_ICONS: Record<string, () => React.JSX.Element> = {
+  claude: ClaudeLogoIcon,
+  codex: CodexLogoIcon,
+  pi: PiLogoIcon,
+  opencode: OpenCodeLogoIcon,
+};
+
+// The CLI agent a tab is running: the active pane's when it has one, else the
+// first terminal pane that does.
+function tabCliAgent(tab: Tab): AgentMatch | null {
+  const terms = leaves(tab.root).filter((l) => l.kind === "term");
+  const active = terms.find((l) => l.id === tab.activePane);
+  for (const l of active ? [active, ...terms] : terms) {
+    const m = getAgentForTerm(l.id);
+    if (m) return m;
+  }
+  return null;
+}
 
 // Pick the tab-row icon by what the tab holds. A chat pane is the star of a
 // tab — when one is present (even in a "chat left, terminal right" split) show
@@ -81,9 +105,10 @@ function tabIcon(tab: Tab) {
     if (statuses.includes("done")) return <AgentDoneIcon />;
     return <AgentTabIcon />;
   }
-  // A terminal running a detected CLI agent now falls through to the generic
-  // terminal icon below. getAgentForTerm() is still called by renderTab() and
-  // by App's tab-title logic, so detection stays live for the future feature.
+  // A terminal running a detected CLI agent shows that agent's mark.
+  const cli = tabCliAgent(tab);
+  const Logo = cli ? CLI_AGENT_ICONS[cli.id] : undefined;
+  if (Logo) return <Logo />;
   // No chat, no detected agent: a single-leaf tab shows its own kind.
   if (ls.length === 1) {
     if (ls[0].kind === "file") return <FileTabIcon />;
@@ -177,6 +202,12 @@ export default function Sidebar({
     util: Utility;
   } | null>(null);
   const [wsMenu, setWsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null);
+  // Home folder, for showing an agent's working folder as "~/…".
+  const [home, setHome] = useState("");
+  useEffect(() => {
+    homeDir().then(setHome).catch(() => {});
+  }, []);
   const [agentMenu, setAgentMenu] = useState<{
     x: number;
     y: number;
@@ -333,8 +364,16 @@ export default function Sidebar({
     });
   };
 
-  const commit = (tabId: string) => {
-    onRename(tabId, draft.trim());
+  const startRename = (tab: Tab) => {
+    setEditingId(tab.id);
+    setDraft(tab.title);
+  };
+
+  // An unchanged name isn't saved — saving pins the title, which would stop
+  // an agent tab's live auto-title. An empty name returns it to auto.
+  const commit = (tab: Tab) => {
+    const next = draft.trim();
+    if (next !== tab.title) onRename(tab.id, next);
     setEditingId(null);
   };
 
@@ -579,13 +618,14 @@ export default function Sidebar({
     // An agent chat acts as a folder for the sessions it spawned.
     const ls = leaves(tab.root);
     const leafCount = ls.length;
-    // Detected CLI agents across this tab's terminal leaves — drives the
-    // brand-avatar icon and suppresses the redundant pane-count badge when
-    // the avatars already convey multiplicity.
-    const matchedAgents = ls
-      .filter((l) => l.kind === "term")
-      .map((l) => getAgentForTerm(l.id)?.id)
-      .filter((id): id is string => !!id);
+    // A terminal running a CLI agent gets a second line: the folder the agent
+    // works in, so two agent tabs tell apart without opening them. In a linked
+    // worktree it's the main checkout plus a worktree badge — the worktree's
+    // own path (…/.claude/worktrees/x) is long and says less.
+    const cli = tabCliAgent(tab);
+    const cliCwd = cli?.cwd ?? "";
+    const wt = cliCwd ? cli?.worktree : null;
+    const subtitle = cliCwd ? tildePath(wt ? wt.repo : cliCwd, home) : "";
     const ownedSessions =
       ls.length === 1 && ls[0].kind === "agent"
         ? sessions.filter((s) => s.ownerId === ls[0].id)
@@ -597,11 +637,13 @@ export default function Sidebar({
     return (
       <div key={tab.id}>
         <div
-          className={`tab${tab.id === activeId ? " active" : ""}${nested ? " nested" : ""}`}
+          className={`tab${tab.id === activeId ? " active" : ""}${nested ? " nested" : ""}${subtitle ? " two-line" : ""}`}
+          title={cliCwd || undefined}
           onClick={() => onSelect(tab.id)}
-          onDoubleClick={() => {
-            setEditingId(tab.id);
-            setDraft(tab.title);
+          onDoubleClick={() => startRename(tab)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setTabMenu({ x: e.clientX, y: e.clientY, tab });
           }}
           onAuxClick={(e) => {
             if (e.button === 1) onClose(tab.id);
@@ -609,24 +651,43 @@ export default function Sidebar({
           onMouseDown={(e) => startTabDrag(e, tab)}
         >
           <span className="tab-icon">{tabIcon(tab)}</span>
-          {editingId === tab.id ? (
-            <input
-              className="tab-rename"
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => commit(tab.id)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Enter") commit(tab.id);
-                if (e.key === "Escape") setEditingId(null);
-              }}
-            />
-          ) : (
-            <span className="tab-title">{tab.title}</span>
-          )}
-          {leafCount > 1 && matchedAgents.length === 0 && (
+          <span className="tab-lines">
+            {editingId === tab.id ? (
+              <input
+                className="tab-rename"
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={() => commit(tab)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commit(tab);
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+              />
+            ) : (
+              <span className="tab-title">{tab.title}</span>
+            )}
+            {subtitle && (
+              <span className="tab-sub">
+                <span className="tab-path">
+                  <bdi>{subtitle}</bdi>
+                </span>
+                {wt && (
+                  <span
+                    className="tab-wt"
+                    title={`Worktree ${wt.name}${wt.branch ? ` · ${wt.branch}` : ""}`}
+                  >
+                    <BranchIcon />
+                    <span className="tab-wt-name">{wt.branch || wt.name}</span>
+                  </span>
+                )}
+              </span>
+            )}
+          </span>
+          {leafCount > 1 && (
             <span className="tab-pane-count" title={`${leafCount} panes`}>{leafCount}</span>
           )}
           <button
@@ -1141,6 +1202,46 @@ export default function Sidebar({
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </>
+        )}
+
+        {tabMenu && (
+          <>
+            <div className="menu-backdrop" onMouseDown={() => setTabMenu(null)} />
+            <div
+              className="ctx-menu"
+              // keep the menu on screen when opened near the bottom edge
+              style={{ left: tabMenu.x, top: Math.min(tabMenu.y, window.innerHeight - 112) }}
+            >
+              <button
+                onClick={() => {
+                  startRename(tabMenu.tab);
+                  setTabMenu(null);
+                }}
+              >
+                <RenameIcon />
+                Rename
+              </button>
+              <button
+                onClick={() => {
+                  onPin({ type: "tab", id: tabMenu.tab.id });
+                  setTabMenu(null);
+                }}
+              >
+                <PinIcon />
+                Pin
+              </button>
+              <div className="ctx-sep" />
+              <button
+                onClick={() => {
+                  onClose(tabMenu.tab.id);
+                  setTabMenu(null);
+                }}
+              >
+                <CloseSquareIcon />
+                Close
               </button>
             </div>
           </>

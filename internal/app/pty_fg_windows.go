@@ -16,6 +16,11 @@ import (
 type ForegroundProcess struct {
 	Name string `json:"name"`
 	Pid  int    `json:"pid"`
+	// Cwd is the program's working folder ("" at a bare shell prompt or when
+	// it can't be read). The sidebar shows it under a CLI agent's tab title.
+	Cwd string `json:"cwd"`
+	// Worktree is the linked git worktree Cwd is in, nil when it isn't in one.
+	Worktree *GitWorktree `json:"worktree"`
 }
 
 // kernel32 process-snapshot helpers. golang.org/x/sys/windows doesn't wrap
@@ -154,5 +159,79 @@ func foregroundProcess(rootPid int) (ForegroundProcess, error) {
 		visited[passthroughChild] = struct{}{}
 		cur = passthroughChild
 	}
-	return ForegroundProcess{Name: strings.ToLower(procs[cur].name), Pid: int(cur)}, nil
+	fg := ForegroundProcess{Name: strings.ToLower(procs[cur].name), Pid: int(cur)}
+	// A shell's own process cwd is stale (PowerShell's Set-Location doesn't
+	// change it), so only read it for a program launched from the prompt —
+	// those start in the folder the shell was in.
+	if cur != uint32(rootPid) {
+		fg.Cwd = processCwd(cur)
+		fg.Worktree = linkedWorktree(fg.Cwd)
+	}
+	return fg, nil
+}
+
+// processBasicInfo mirrors PROCESS_BASIC_INFORMATION with the PEB address as a
+// plain uintptr: it points into ANOTHER process, and a foreign address in a
+// Go pointer field can trip the GC's bad-pointer check.
+type processBasicInfo struct {
+	ExitStatus                   uint32
+	PebBaseAddress               uintptr
+	AffinityMask                 uintptr
+	BasePriority                 int32
+	UniqueProcessId              uintptr
+	InheritedFromUniqueProcessId uintptr
+}
+
+// remoteUnicodeString mirrors UNICODE_STRING (Length is in bytes) for the
+// same reason — Buffer is an address in the target process.
+type remoteUnicodeString struct {
+	Length        uint16
+	MaximumLength uint16
+	Buffer        uintptr
+}
+
+// processCwd reads another process's current directory out of its PEB
+// (ProcessParameters->CurrentDirectory.DosPath) — Windows has no API for it.
+// Best-effort: "" when the process is gone, access is denied, or it's a WOW64
+// process (its 64-bit PEB doesn't track the 32-bit side's cwd).
+func processCwd(pid uint32) string {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_VM_READ, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer windows.CloseHandle(h)
+	var wow64 bool
+	if windows.IsWow64Process(h, &wow64) != nil || wow64 {
+		return ""
+	}
+
+	var pbi processBasicInfo
+	if windows.NtQueryInformationProcess(h, windows.ProcessBasicInformation,
+		unsafe.Pointer(&pbi), uint32(unsafe.Sizeof(pbi)), nil) != nil || pbi.PebBaseAddress == 0 {
+		return ""
+	}
+	read := func(addr uintptr, dst unsafe.Pointer, size uintptr) bool {
+		return windows.ReadProcessMemory(h, addr, (*byte)(dst), size, nil) == nil
+	}
+	var params uintptr
+	if !read(pbi.PebBaseAddress+unsafe.Offsetof(windows.PEB{}.ProcessParameters),
+		unsafe.Pointer(&params), unsafe.Sizeof(params)) || params == 0 {
+		return ""
+	}
+	var dir remoteUnicodeString
+	if !read(params+unsafe.Offsetof(windows.RTL_USER_PROCESS_PARAMETERS{}.CurrentDirectory),
+		unsafe.Pointer(&dir), unsafe.Sizeof(dir)) || dir.Length < 2 || dir.Buffer == 0 {
+		return ""
+	}
+	buf := make([]uint16, dir.Length/2)
+	if !read(dir.Buffer, unsafe.Pointer(&buf[0]), uintptr(len(buf))*2) {
+		return ""
+	}
+	cwd := windows.UTF16ToString(buf)
+	// The DOS path keeps a trailing backslash (`C:\x\`); drop it except at a
+	// drive root (`C:\`).
+	if len(cwd) > 3 {
+		cwd = strings.TrimRight(cwd, `\`)
+	}
+	return cwd
 }

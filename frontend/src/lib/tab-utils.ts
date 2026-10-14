@@ -28,6 +28,19 @@ export function basename(path: string): string {
   return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
 }
 
+/** A path the way a shell prompt shows it: forward slashes, home folded to
+ *  "~" (C:\Users\me\Desktop\app → ~/Desktop/app). Case-insensitive like
+ *  Windows paths. */
+export function tildePath(path: string, home: string): string {
+  const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
+  const p = norm(path);
+  const h = norm(home);
+  if (h && (p.toLowerCase() === h.toLowerCase() || p.toLowerCase().startsWith(h.toLowerCase() + "/")))
+    return "~" + p.slice(h.length);
+  // A bare drive ("C:\" → "C:") keeps its slash.
+  return /^[a-z]:$/i.test(p) ? p + "/" : p;
+}
+
 /** Shell OSC titles are often raw exe paths — reduce them to a short name. */
 export function prettyTitle(raw: string): string {
   const t = raw.trim();
