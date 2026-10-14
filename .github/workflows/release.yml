@@ -41,8 +41,9 @@ jobs:
           $version = $Matches[1]
           $wails = Get-Content wails.json -Raw | ConvertFrom-Json
           $package = Get-Content frontend/package.json -Raw | ConvertFrom-Json
-          $lock = Get-Content frontend/package-lock.json -Raw | ConvertFrom-Json
-          foreach ($value in @($wails.info.productVersion, $package.version, $lock.version, $lock.packages.''.version)) {
+          # npm's root package has an empty key, which requires a hashtable.
+          $lock = Get-Content frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashtable
+          foreach ($value in @($wails.info.productVersion, $package.version, $lock.version, $lock.packages[''].version)) {
             if ($value -ne $version) { throw "Version mismatch: tag $version, metadata $value" }
           }
           if (-not (Test-Path "docs/releases/$tag.md")) { throw "Missing release notes for $tag" }

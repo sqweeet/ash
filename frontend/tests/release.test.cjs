@@ -51,6 +51,7 @@ test('release keeps installer primary, stable update filename, checksums, and ve
   assert.match(workflow, /staging\/SHA256SUMS\.txt/);
   assert.match(workflow, /Get-FileHash .* -Algorithm SHA256/);
   assert.match(workflow, /VersionInfo\.ProductVersion/);
+  assert.match(workflow, /frontend\/package-lock\.json -Raw \| ConvertFrom-Json -AsHashtable/);
   assert.match(read('internal/app/updater.go'), /ghOwner\s*= "sqweeet"/);
   assert.match(read('internal/app/updater.go'), /assetName\s*= "Ash\.exe"/);
   assert.ok(read('README.md').includes('**Download') || read('README.md').includes('**[Download the Windows installer]'));
