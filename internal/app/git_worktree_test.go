@@ -78,8 +78,17 @@ func TestLinkedWorktreeMatchesRealGit(t *testing.T) {
 	wt := filepath.Join(root, "repo-feature")
 	run(repo, "worktree", "add", "-q", "-b", "feature", wt)
 
+	// git records the long path; TMP may be an 8.3 short one (RUNNER~1 on
+	// CI), so compare resolved paths.
+	resolve := func(p string) string {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", p, err)
+		}
+		return r
+	}
 	got := linkedWorktree(wt)
-	if got == nil || got.Name != "repo-feature" || got.Branch != "feature" || !strings.EqualFold(got.Repo, repo) {
+	if got == nil || got.Name != "repo-feature" || got.Branch != "feature" || !strings.EqualFold(resolve(got.Repo), resolve(repo)) {
 		t.Fatalf("linkedWorktree() = %+v, want repo-feature on feature in %s", got, repo)
 	}
 	if got := linkedWorktree(repo); got != nil {
