@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.2
 
 ### Removed
 
@@ -15,6 +15,7 @@
 - Detect Meta's Muse Code (`muse-bin-<version>.exe`, run by its `muse.cmd` launcher) and omp (oh-my-pi, `omp.exe`), show their marks, and offer them in the Agents section when they are on the PATH.
 - Stop re-rendering the whole window on every frame of an agent's title spinner.
 - Fade long tab titles at the edge and scroll them on hover instead of cutting them off with "…".
+- Drag a tab by its top or bottom edge to reorder it, within a workspace or into another one; dropping on the middle of a tab still merges the two into a split.
 
 ### Terminal
 
