@@ -172,39 +172,6 @@
   padding-right: max(0px, calc(var(--term-pad, 10px) - 11px));
 }
 
-/* warm breathing glow around a terminal the agent is actively driving —
-   overlay on top of everything in the pane, clicks pass through */
-/* Agent-driving overlay: the terminal grays out for the whole time the
-   agent owns it, with one icon + one line. Blocks clicks/scroll — the agent
-   controls the terminal, including scrolling. */
-.agent-glow {
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  border-radius: 20px 20px 10px 10px;
-  corner-shape: squircle;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  cursor: default;
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
-  animation: sp-fade 0.4s ease;
-}
-.agent-takeover {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  color: var(--muted);
-}
-.agent-takeover svg {
-  color: var(--icon);
-}
-.agent-takeover span {
-  font-size: 13px;
-}
-
 .pane.dim {
   opacity: 0.55;
 }

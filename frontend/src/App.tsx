@@ -19,15 +19,6 @@ import { onUpdateState, startAutoCheck, startDemo, stopDemo } from "./lib/update
 import { AGENTS, AgentDef } from "./lib/agents";
 import { RunConfig, loadRuns, runCwd, saveRuns } from "./lib/runs";
 import { initPtyEvents, ptyKill } from "./lib/pty";
-import {
-  isBackgroundTerm,
-  removeBackgroundTerm,
-} from "./lib/background-terms";
-import { getBgAgent, onBgAgentsChange } from "./lib/bg-agents";
-import { listChats, removeChat, clearAllChats } from "./lib/chat-store";
-import { discardSandbox } from "./lib/sandbox";
-import { importSession } from "./lib/agent-engine/import";
-import type { ImportedSessionMeta } from "./lib/agent-engine/import/types";
 import { openUrl } from "./backend/opener";
 import {
   adjustFontSize,
@@ -55,7 +46,6 @@ import {
   termLeaf,
   webLeaf,
   fileLeaf,
-  agentLeaf,
 } from "./lib/layout";
 import {
   loadJson,
@@ -112,41 +102,14 @@ export interface PinnedItem {
 const DEFAULT_WEB_URL = "http://localhost:3000";
 
 export default function App() {
-  // Saved agent chats survive restarts — recreate their tabs on startup
-  // (the chat id doubles as the pane leaf id, so AgentThread finds its
-  // transcript again). Everything else starts fresh at the Welcome screen.
-  const initialTabs = useRef<Tab[] | null>(null);
-  if (!initialTabs.current) {
-    const ws = loadWorkspaces();
-    initialTabs.current = listChats().map((c) => ({
-      id: crypto.randomUUID(),
-      title: c.title,
-      titlePinned: true,
-      root: agentLeaf(c.chatId, c.agentId, c.cwd, c.name),
-      activePane: c.chatId,
-      workspaceId: ws.list.find((w) => w.path === c.cwd)?.id ?? null,
-    }));
-  }
-
-  const [tabs, setTabs] = useState<Tab[]>(initialTabs.current);
-  const [activeTabId, setActiveTabId] = useState<string | null>(
-    initialTabs.current[0]?.id ?? null,
-  );
-  const [confirmClose, setConfirmClose] = useState<{
-    tabId: string;
-    title: string;
-    /** Set when closing ONE agent pane inside a split — only that pane (and its
-     * chat) is removed on confirm. Absent = close the whole tab. */
-    paneId?: string;
-  } | null>(null);
+  // Every launch starts fresh at the Welcome screen.
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
-  // Mount-through-close for the two confirm dialogs: flipping the state to
-  // null unmounts instantly, so we set a `closing` flag, let the exit
-  // animation play, then drop the dialog after it finishes. Separate flags so
-  // each dialog can animate out independently.
-  const [confirmClosing, setConfirmClosing] = useState(false);
+  // Mount-through-close for the confirm dialog: flipping the state to false
+  // unmounts instantly, so we set a `closing` flag, let the exit animation
+  // play, then drop the dialog after it finishes.
   const [confirmAllClosing, setConfirmAllClosing] = useState(false);
-  const confirmModalRef = useRef<HTMLDivElement>(null);
   const confirmAllModalRef = useRef<HTMLDivElement>(null);
   // Exit animation runs via the Web Animations API on the live modal element —
   // swapping a CSS class to change animation-name on an element that already
@@ -167,13 +130,6 @@ export default function App() {
     );
     anim.onfinish = () => done();
   };
-  const closeConfirm = useCallback(() => {
-    setConfirmClosing(true);
-    animateOut(confirmModalRef.current, () => {
-      setConfirmClose(null);
-      setConfirmClosing(false);
-    });
-  }, []);
   const closeConfirmAll = useCallback(() => {
     setConfirmAllClosing(true);
     animateOut(confirmAllModalRef.current, () => {
@@ -453,40 +409,26 @@ export default function App() {
     else setRuns([]);
   }, [activeWorkspace?.path]);
 
-  // Clear-on-exit: when the OS window close is requested, wipe whatever the
-  // user chose (chats on disk, live terminals, or both) before destroying the
+  // Clear-on-exit: when the OS window close is requested and the user chose
+  // to clear terminals, tear the live sessions down before destroying the
   // window. Uses destroy() (not close()) so cleanup can't get stuck in a
-  // re-trigger loop, and races the async work against a hard timeout so the
-  // window ALWAYS exits even if a delete_path invoke hangs on a dying backend.
-  // Best-effort — a hard kill (taskkill / power loss) can't be intercepted.
+  // re-trigger loop. Best-effort — a hard kill (taskkill / power loss) can't
+  // be intercepted.
   useEffect(() => {
     const win = getCurrentWindow();
     let unlisten: (() => void) | undefined;
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      // destroy() tears the window down without re-firing onCloseRequested —
-      // close() would loop back into this handler and could stall.
-      win.destroy();
-    };
     win
-      .onCloseRequested(async (e) => {
-        if (done) return;
-        const mode = getSettings().clearOnExit;
-        if (mode === "none") return; // let the default close proceed
+      .onCloseRequested((e) => {
+        if (getSettings().clearOnExit !== "terminals") return; // default close
         e.preventDefault();
-        // Hard cap: no matter how long cleanup takes, exit after 800ms so the
-        // app never appears to "hang on close".
-        const guard = window.setTimeout(finish, 800);
         try {
-          if (mode === "terminals" || mode === "all") disposeAllSessions();
-          if (mode === "chats" || mode === "all") await clearAllChats();
+          disposeAllSessions();
         } catch {
           // best-effort cleanup — never block the close on a failure
         } finally {
-          window.clearTimeout(guard);
-          finish();
+          // destroy() tears the window down without re-firing onCloseRequested —
+          // close() would loop back into this handler and could stall.
+          win.destroy();
         }
       })
       .then((u) => (unlisten = u));
@@ -668,26 +610,6 @@ export default function App() {
 
     const ls = leaves(tab.root);
 
-    // An agent chat moves WITH its history: the leaf is rebuilt pointing at the
-    // workspace folder, and AgentThread re-points its live session's cwd — so
-    // "wrote code, forgot to put the chat in the workspace" costs nothing.
-    if (ws && ls.length === 1 && ls[0].kind === "agent" && !ls[0].agentId.startsWith("bg:")) {
-      const leaf = ls[0];
-      setTabs((ts) =>
-        ts.map((t) =>
-          t.id === tabId
-            ? {
-                ...t,
-                root: agentLeaf(leaf.id, leaf.agentId, ws.path, ws.name),
-                workspaceId: wsId,
-                ...(t.title === "Agent" ? { title: `${ws.name} · Agent` } : {}),
-              }
-            : t,
-        ),
-      );
-      return;
-    }
-
     // A pristine single terminal (nothing typed or run since it spawned) is
     // respawned fresh IN the folder, so its shell actually starts there. A
     // used one just moves as-is — same live terminal, only regrouped (it will
@@ -696,7 +618,6 @@ export default function App() {
       ws &&
       ls.length === 1 &&
       ls[0].kind === "term" &&
-      !isBackgroundTerm(ls[0].id) &&
       !isSessionUsed(ls[0].id);
     if (pristine) {
       const oldId = ls[0].id;
@@ -790,190 +711,6 @@ export default function App() {
     setActiveTabId(tab.id);
   }, []);
 
-  // Open an agent-thread tab (Codex-style: prompt an agent, watch it work).
-  // New agents start OUTSIDE any workspace in the user's HOME directory (not the
-  // app's launch dir) — drag the tab onto a workspace to move it there; the chat
-  // keeps its history and simply re-points its working directory (see
-  // moveTabToWorkspace).
-  const openAgent = useCallback(async (agentId = "claude") => {
-    const home = await homeDir().catch(() => "");
-    const leafId = crypto.randomUUID();
-    const tab: Tab = {
-      id: crypto.randomUUID(),
-      title: "Agent",
-      titlePinned: true,
-      root: agentLeaf(leafId, agentId, home, ""),
-      activePane: leafId,
-      workspaceId: null,
-    };
-    setTabs((t) => [...t, tab]);
-    setActiveTabId(tab.id);
-  }, []);
-
-  // Import a Claude Code / Pi session as a new Ash chat (with its history) and
-  // open it — importSession() has already persisted it via saveChat().
-  const openImportedChat = useCallback(async (meta: ImportedSessionMeta) => {
-    const r = await importSession(meta);
-    if (!r) return;
-    // Group the imported chat under a workspace matching its cwd, creating that
-    // workspace if none exists — otherwise it lands as a loose (folderless) tab.
-    let wsId: string | null = null;
-    if (r.cwd) {
-      const existing = workspacesRef.current.list.find((w) => w.path === r.cwd);
-      if (existing) wsId = existing.id;
-      else {
-        const id = crypto.randomUUID();
-        wsId = id;
-        setWorkspaces((prev) => {
-          if (prev.list.some((w) => w.path === r.cwd)) return prev;
-          const next = {
-            list: [...prev.list, { id, path: r.cwd, name: r.name || basename(r.cwd) }],
-            activeId: prev.activeId,
-          };
-          saveWorkspaces(next);
-          return next;
-        });
-      }
-    }
-    const tab: Tab = {
-      id: crypto.randomUUID(),
-      title: r.title,
-      titlePinned: true,
-      root: agentLeaf(r.chatId, "ash", r.cwd, r.name),
-      activePane: r.chatId,
-      workspaceId: wsId,
-    };
-    setTabs((t) => [...t, tab]);
-    setActiveTabId(tab.id);
-  }, []);
-
-  // View a background agent's chat: a read-only AgentThread bound to the
-  // bg-agents store (agentId "bg:<id>"). Stable pane id → reopening focuses.
-  const openBgAgentViewer = useCallback((bgId: string, agentName: string) => {
-    // The agent may have been removed (TTL/prune/stop) in the frame between the
-    // store update and the sidebar dropping its row, so a stale row is still
-    // clickable — don't open a viewer for an agent that no longer exists.
-    if (!getBgAgent(bgId)) return;
-    const paneId = `bgv:${bgId}`;
-    const existing = tabsRef.current.find((t) => leafIds(t.root).includes(paneId));
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    const tab: Tab = {
-      id: crypto.randomUUID(),
-      title: agentName,
-      titlePinned: true,
-      root: agentLeaf(paneId, `bg:${bgId}`, "", agentName),
-      activePane: paneId,
-      workspaceId: null,
-    };
-    setTabs((t) => [...t, tab]);
-    setActiveTabId(tab.id);
-  }, []);
-
-  // View a background session: reattach its live terminal into a normal tab
-  // (same pane id → ensureSession re-parents the existing xterm container).
-  const openBackgroundTerm = useCallback((id: string, title: string) => {
-    const existing = tabsRef.current.find((t) => leafIds(t.root).includes(id));
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    const tab: Tab = {
-      id: crypto.randomUUID(),
-      title,
-      titlePinned: true,
-      root: termLeaf(id),
-      activePane: id,
-      workspaceId: null,
-    };
-    setTabs((t) => [...t, tab]);
-    setActiveTabId(tab.id);
-  }, []);
-
-  const killBackgroundTerm = useCallback((id: string) => {
-    ptyKill(id);
-    disposeSession(id);
-    removeBackgroundTerm(id);
-    const tab = tabsRef.current.find((t) => leafIds(t.root).includes(id));
-    if (!tab) return;
-    // Remove ONLY this pane's leaf, not the whole tab — the bg-term viewer may
-    // be split with other terminals/agent chats, which must not be destroyed
-    // (they'd leak PTYs and drop chats without the confirm). Mirrors closePane.
-    const newRoot = removeLeaf(tab.root, id);
-    if (newRoot) {
-      setTabs((ts) =>
-        ts.map((t) =>
-          t.id === tab.id
-            ? {
-                ...t,
-                root: newRoot,
-                activePane: leafIds(newRoot).includes(t.activePane)
-                  ? t.activePane
-                  : firstLeaf(newRoot),
-              }
-            : t,
-        ),
-      );
-      return;
-    }
-    // Was the tab's last pane — close the tab (matching closePane's handling).
-    const remaining = tabsRef.current.filter((t) => t.id !== tab.id);
-    if (remaining.length === 0) {
-      getCurrentWindow().close();
-      return;
-    }
-    if (activeTabIdRef.current === tab.id) {
-      const idx = tabsRef.current.findIndex((t) => t.id === tab.id);
-      setActiveTabId(remaining[Math.min(idx, remaining.length - 1)].id);
-    }
-    setTabs(remaining);
-  }, []);
-
-  // Reap background-agent VIEWER panes whose agent has left the store (stopped,
-  // 60s TTL, or pruned). Otherwise the viewer tab lingers after its sidebar row
-  // is gone, frozen on a stale transcript that mislabels itself "stopped". Fires
-  // on every bg-agents change but only re-renders when a viewer is actually dead.
-  useEffect(
-    () =>
-      onBgAgentsChange(() => {
-        const ts = tabsRef.current;
-        let changed = false;
-        const next: Tab[] = [];
-        for (const t of ts) {
-          const dead = leaves(t.root).filter(
-            (l) =>
-              l.kind === "agent" &&
-              l.agentId.startsWith("bg:") &&
-              !getBgAgent(l.agentId.slice(3)),
-          );
-          if (!dead.length) {
-            next.push(t);
-            continue;
-          }
-          changed = true;
-          let root: PaneNode | null = t.root;
-          for (const l of dead) {
-            disposeSession(l.id);
-            root = root ? removeLeaf(root, l.id) : null;
-          }
-          if (root)
-            next.push({
-              ...t,
-              root,
-              activePane: leafIds(root).includes(t.activePane) ? t.activePane : firstLeaf(root),
-            });
-          // else: the tab held only dead viewer leaves → drop the whole tab
-        }
-        if (!changed) return;
-        if (!next.some((t) => t.id === activeTabIdRef.current))
-          setActiveTabId(next.length ? next[next.length - 1].id : null);
-        setTabs(next);
-      }),
-    [],
-  );
-
   const addTabInWorkspace = useCallback(
     (wsId: string) => {
       const ws = workspaces.list.find((w) => w.id === wsId);
@@ -988,31 +725,8 @@ export default function App() {
   );
 
   const closePane = useCallback((paneId: string, kill: boolean) => {
-    // Closing an agent chat is guarded by a confirm modal (accidental close
-    // would bury a whole conversation).
-    if (kill) {
-      const holder = tabsRef.current.find((t) => leafIds(t.root).includes(paneId));
-      const leaf = holder ? leaves(holder.root).find((l) => l.id === paneId) : undefined;
-      // bg-agent viewers ("bg:*") close freely — nothing is lost with them
-      if (holder && leaf?.kind === "agent" && !leaf.agentId.startsWith("bg:")) {
-        // Carry paneId so the confirm only closes THIS pane, not every sibling
-        // in the split (which used to delete unrelated terminals + all chats).
-        setConfirmClose({ tabId: holder.id, title: holder.title, paneId });
-        return;
-      }
-    }
-    if (isBackgroundTerm(paneId)) {
-      if (kill) {
-        // User closed the viewing tab; the background session keeps running offscreen.
-      } else {
-        // The background process itself exited — retire the session.
-        removeBackgroundTerm(paneId);
-        disposeSession(paneId);
-      }
-    } else {
-      if (kill) ptyKill(paneId);
-      disposeSession(paneId);
-    }
+    if (kill) ptyKill(paneId);
+    disposeSession(paneId);
     const tab = tabsRef.current.find((t) => leafIds(t.root).includes(paneId));
     if (!tab) return;
     const newRoot = removeLeaf(tab.root, paneId);
@@ -1111,21 +825,10 @@ export default function App() {
     [],
   );
 
-  // Sidebar close button: agent chats get a confirm modal first.
-  const requestCloseTab = useCallback((tabId: string) => {
-    const tab = tabsRef.current.find((t) => t.id === tabId);
-    if (!tab) return;
-    if (leaves(tab.root).some((l) => l.kind === "agent" && !l.agentId.startsWith("bg:")))
-      setConfirmClose({ tabId, title: tab.title });
-    else closeTab(tabId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const closeTab = useCallback((tabId: string) => {
     const tab = tabsRef.current.find((t) => t.id === tabId);
     if (!tab) return;
     leafIds(tab.root).forEach((id) => {
-      if (isBackgroundTerm(id)) return; // background session keeps running
       ptyKill(id);
       disposeSession(id);
     });
@@ -1141,18 +844,11 @@ export default function App() {
     setTabs(remaining);
   }, []);
 
-  // Close ALL terminals and agent chats (chats are deleted). Unlike closing the
-  // last tab by hand, this lands on the Welcome screen instead of quitting.
+  // Close ALL tabs. Unlike closing the last tab by hand, this lands on the
+  // Welcome screen instead of quitting.
   const closeAllTabs = useCallback(() => {
     for (const tab of tabsRef.current) {
-      leaves(tab.root).forEach((l) => {
-        if (l.kind === "agent") {
-          removeChat(l.id);
-          discardSandbox(l.id);
-        }
-      });
       leafIds(tab.root).forEach((pid) => {
-        if (isBackgroundTerm(pid)) return; // background session keeps running
         ptyKill(pid);
         disposeSession(pid);
       });
@@ -1432,7 +1128,7 @@ export default function App() {
     });
   }, [setTitle]);
 
-  // Links anywhere in the UI (chat markdown, etc.): localhost opens the
+  // Links anywhere in the UI: localhost opens the
   // in-app browser pane next to the pane it was clicked in; everything else
   // goes to the system browser. Capture-phase so the webview never navigates.
   useEffect(() => {
@@ -1559,7 +1255,7 @@ export default function App() {
   ) : null;
   const activeTab = tabs.find((t) => t.id === activeTabId);
   // The titlebar's folder + branch follow the ACTIVE TAB's own workspace, not
-  // the globally-active one. A workspace-less tab (e.g. a fresh home agent)
+  // the globally-active one. A workspace-less tab (e.g. a fresh home shell)
   // shows no folder instead of a stale name left over from another tab — the
   // activeWorkspace sync bails when a tab has no workspace, so it can go stale.
   const activeTabWs = activeTab?.workspaceId
@@ -1636,10 +1332,6 @@ export default function App() {
           onMoveTabToWorkspace={moveTabToWorkspace}
           onReorderTab={reorderTab}
           onSplitMergeTab={splitMergeTab}
-          onOpenBackgroundTerm={openBackgroundTerm}
-          onOpenBgAgent={openBgAgentViewer}
-          onKillBackgroundTerm={killBackgroundTerm}
-          onOpenAgent={() => openAgent("ash")}
           onRunUtility={runUtility}
           onAddUtility={() => setUtilEditing("new")}
           onEditUtility={(u) => setUtilEditing(u)}
@@ -1656,7 +1348,7 @@ export default function App() {
           onUnpin={unpinItem}
           onMovePinned={movePinned}
           onSelect={setActiveTabId}
-          onClose={requestCloseTab}
+          onClose={closeTab}
           onNew={addTab}
           onRename={renameTab}
           onOpenSearch={() => setPaletteOpen(true)}
@@ -1702,7 +1394,6 @@ export default function App() {
                     onRatio={setRatio}
                     onUrlChange={changePaneUrl}
                     onClosePane={closePaneKill}
-                    onRename={renameTab}
                   />
                 </div>
               ))
@@ -1720,7 +1411,6 @@ export default function App() {
           onNewTab={addTab}
           onOpenFolder={addWorkspace}
           onOpenSettings={() => setSettingsOpen(true)}
-          onImport={openImportedChat}
           onClose={() => setPaletteOpen(false)}
         />
       )}
@@ -1733,76 +1423,13 @@ export default function App() {
           }}
         />
       )}
-      {confirmClose && (
-        <div className={`modal-backdrop${confirmClosing ? " closing" : ""}`} onMouseDown={() => closeConfirm()}>
-          <div className={`confirm-modal${confirmClosing ? " closing" : ""}`} onMouseDown={(e) => e.stopPropagation()}>
-            <h3>Close chat?</h3>
-            <p>
-              “{confirmClose.title}” and its history will be deleted. This
-              can’t be undone.
-            </p>
-            <div className="confirm-actions">
-              <button className="cancel" onClick={() => closeConfirm()}>
-                Cancel
-              </button>
-              <button
-                className="danger"
-                onClick={() => {
-                  const { tabId, paneId } = confirmClose;
-                  const tab = tabsRef.current.find((t) => t.id === tabId);
-                  if (!tab) {
-                    closeConfirm();
-                    return;
-                  }
-                  // One agent pane inside a multi-leaf split: remove ONLY that
-                  // pane and its chat; leave every sibling terminal/chat intact.
-                  if (paneId && leaves(tab.root).length > 1) {
-                    removeChat(paneId);
-                    discardSandbox(paneId);
-                    disposeSession(paneId);
-                    const newRoot = removeLeaf(tab.root, paneId);
-                    if (newRoot)
-                      setTabs((ts) =>
-                        ts.map((t) =>
-                          t.id === tab.id
-                            ? {
-                                ...t,
-                                root: newRoot,
-                                activePane: leafIds(newRoot).includes(t.activePane)
-                                  ? t.activePane
-                                  : firstLeaf(newRoot),
-                              }
-                            : t,
-                        ),
-                      );
-                    closeConfirm();
-                    return;
-                  }
-                  // Whole tab (last pane, or a sidebar tab-close): delete every
-                  // agent chat in it, then close the tab.
-                  leaves(tab.root).forEach((l) => {
-                    if (l.kind === "agent") {
-                      removeChat(l.id);
-                      discardSandbox(l.id);
-                    }
-                  });
-                  closeTab(tabId);
-                  closeConfirm();
-                }}
-              >
-                Close chat
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {confirmCloseAll && (
         <div className={`modal-backdrop${confirmAllClosing ? " closing" : ""}`} onMouseDown={() => closeConfirmAll()}>
           <div className={`confirm-modal${confirmAllClosing ? " closing" : ""}`} onMouseDown={(e) => e.stopPropagation()}>
             <h3>Close everything?</h3>
             <p>
-              All terminals will be closed and all agent chats deleted. This
-              can’t be undone.
+              All tabs will be closed and their terminals ended. This can’t be
+              undone.
             </p>
             <div className="confirm-actions">
               <button className="cancel" onClick={() => closeConfirmAll()}>

@@ -71,7 +71,7 @@ func resolveWorkDir(cwd string) string {
 }
 
 func openConPTY(cwd string, cols, rows uint16, program string, args []string) (*ptyProc, error) {
-	// Caller-supplied program wins (agent may spawn a specific shell); else
+	// Caller-supplied program wins (ssh, a chosen shell); else
 	// auto-detect pwsh/powershell/cmd (matches Ash's Windows-shell assumption).
 	var cmdLine string
 	if program != "" {

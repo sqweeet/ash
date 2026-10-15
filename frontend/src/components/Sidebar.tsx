@@ -9,13 +9,6 @@ import { SectionToggles } from "../lib/settings";
 import { tildePath } from "../lib/tab-utils";
 import { getAgentStatus, onAgentStatusChange } from "../lib/agent-status";
 import { AgentMatch, getAgentForTerm, onAgentDetectChange } from "../lib/agent-detect";
-import {
-  getBackgroundTerms,
-  isBackgroundTerm,
-  onBackgroundTermsChange,
-} from "../lib/background-terms";
-import { BgAgent, getBgAgents, onBgAgentsChange, stopOrRemoveBgAgent } from "../lib/bg-agents";
-import MeshAvatar from "./MeshAvatar";
 import MarqueeText from "./MarqueeText";
 
 interface SidebarProps {
@@ -37,9 +30,6 @@ interface SidebarProps {
     dir: "row" | "col",
     placeBefore: boolean,
   ) => void;
-  onOpenBackgroundTerm: (id: string, title: string) => void;
-  onKillBackgroundTerm: (id: string) => void;
-  onOpenBgAgent: (id: string, name: string) => void;
   onRunUtility: (u: Utility) => void;
   onAddUtility: () => void;
   onEditUtility: (u: Utility) => void;
@@ -60,16 +50,14 @@ interface SidebarProps {
   onNew: () => void;
   onOpenSearch: () => void;
   onCloseAll: () => void;
-  onOpenAgent: () => void;
   onRename: (id: string, title: string) => void;
   onOpenSettings: () => void;
 }
 
 import {
   FolderIcon, FolderOpenIcon, BranchIcon, ServerIcon, TerminalIcon, FileTabIcon,
-  WebTabIcon, PinIcon, AgentTabIcon, NewAgentIcon, AgentWorkingIcon,
-  AgentDoneIcon, SessionTermIcon, BotIcon, CommandIcon, PlusIcon,
-  AgentDoneChatIcon, BroomIcon, CloseSquareIcon, GearIcon, NewTabIcon,
+  WebTabIcon, PinIcon, BotIcon, CommandIcon, PlusIcon,
+  BroomIcon, CloseSquareIcon, GearIcon, NewTabIcon,
   SearchIcon, ClaudeLogoIcon, CodexLogoIcon, PiLogoIcon, OpenCodeLogoIcon,
   RenameIcon,
 } from "./sidebar/icons";
@@ -101,23 +89,14 @@ function tabCliWorking(tab: Tab): boolean {
   return leaves(tab.root).some((l) => l.kind === "term" && getAgentStatus(l.id) === "working");
 }
 
-// Pick the tab-row icon by what the tab holds. A chat pane is the star of a
-// tab — when one is present (even in a "chat left, terminal right" split) show
-// its icon, with live working/done state, instead of the terminal fallback.
+// Pick the tab-row icon by what the tab holds.
 function tabIcon(tab: Tab) {
   const ls = leaves(tab.root);
-  const agents = ls.filter((l) => l.kind === "agent");
-  if (agents.length) {
-    const statuses = agents.map((l) => getAgentStatus(l.id));
-    if (statuses.includes("working")) return <AgentWorkingIcon />;
-    if (statuses.includes("done")) return <AgentDoneIcon />;
-    return <AgentTabIcon />;
-  }
   // A terminal running a detected CLI agent shows that agent's mark.
   const cli = tabCliAgent(tab);
   const Logo = cli ? CLI_AGENT_ICONS[cli.id] : undefined;
   if (Logo) return <Logo />;
-  // No chat, no detected agent: a single-leaf tab shows its own kind.
+  // No detected agent: a single-leaf tab shows its own kind.
   if (ls.length === 1) {
     if (ls[0].kind === "file") return <FileTabIcon />;
     if (ls[0].kind === "web") return <WebTabIcon />;
@@ -139,9 +118,6 @@ export default function Sidebar({
   onMoveTabToWorkspace,
   onReorderTab,
   onSplitMergeTab,
-  onOpenBackgroundTerm,
-  onKillBackgroundTerm,
-  onOpenBgAgent,
   onRunUtility,
   onAddUtility,
   onEditUtility,
@@ -162,49 +138,18 @@ export default function Sidebar({
   onNew,
   onOpenSearch,
   onCloseAll,
-  onOpenAgent,
   onRename,
   onOpenSettings,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  // Re-render tab icons when an agent pane starts/finishes working.
+  // Re-render tab rows when a CLI agent starts/finishes a turn (title shine).
   const [, bumpAgentStatus] = useState(0);
   useEffect(() => onAgentStatusChange(() => bumpAgentStatus((x) => x + 1)), []);
   // Re-render tab icons when a CLI agent is detected/lost in a terminal so
   // the brand logo appears without switching tabs.
   const [, bumpAgentDetect] = useState(0);
   useEffect(() => onAgentDetectChange(() => bumpAgentDetect((x) => x + 1)), []);
-  // Agent-spawned background terminal sessions (collapsible group below).
-  const [, bumpSessions] = useState(0);
-  useEffect(() => onBackgroundTermsChange(() => bumpSessions((x) => x + 1)), []);
-  // Background agents (delegated subtasks) — rows with colored dot loaders.
-  const [, bumpBgAgents] = useState(0);
-  useEffect(() => onBgAgentsChange(() => bumpBgAgents((x) => x + 1)), []);
-  const bgAgents = getBgAgents();
-  // Per-agent "hide its terminals" toggle (default: shown).
-  const [hiddenBgSessions, setHiddenBgSessions] = useState<Set<string>>(new Set());
-  const toggleBgSessions = (id: string) =>
-    setHiddenBgSessions((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const [sessionsOpen, setSessionsOpen] = useState(true);
-  const sessions = getBackgroundTerms();
-  // Sessions whose owning agent chat is gone fall back to a global group.
-  const liveAgentPanes = new Set(
-    tabs.flatMap((t) => leaves(t.root).filter((l) => l.kind === "agent").map((l) => l.id)),
-  );
-  // terminals owned by a live bg agent render under that agent's row instead
-  const liveBgIds = new Set(bgAgents.map((a) => a.id));
-  const orphanSessions = sessions.filter(
-    (s) => !s.ownerId || (!liveAgentPanes.has(s.ownerId) && !liveBgIds.has(s.ownerId)),
-  );
-  const orphanAgents = bgAgents.filter(
-    (a) => !a.ownerId || !liveAgentPanes.has(a.ownerId),
-  );
   const [utilMenu, setUtilMenu] = useState<{
     x: number;
     y: number;
@@ -570,130 +515,7 @@ export default function Sidebar({
     window.addEventListener("mouseup", up);
   };
 
-  const renderSessionRow = (s: { id: string; title: string }, extra = "") => {
-    const viewerTab = tabs.find((t) => leaves(t.root).some((l) => l.id === s.id));
-    const active = !!viewerTab && viewerTab.id === activeId;
-    return (
-      <div
-        key={s.id}
-        className={`tab nested${extra}${active ? " active" : ""}`}
-        onClick={() => onOpenBackgroundTerm(s.id, s.title)}
-      >
-        <span className="tab-icon">
-          <SessionTermIcon />
-        </span>
-        <MarqueeText className="tab-title" text={s.title} />
-        <button
-          className="tab-close"
-          onClick={(e) => {
-            e.stopPropagation();
-            onKillBackgroundTerm(s.id);
-          }}
-        >
-          <CloseSquareIcon />
-        </button>
-      </div>
-    );
-  };
-
-  // Background-agent row: colored dot-matrix loader + simple name; the ×
-  // stops a running agent (first click) or removes a finished one.
-  const renderBgAgentRow = (a: BgAgent, extra = "", grouped = false) => {
-    // terminals THIS agent spawned nest under its row (not in Sessions)
-    const owned = sessions.filter((s) => s.ownerId === a.id);
-    const hidden = hiddenBgSessions.has(a.id);
-    return (
-      <div key={a.id}>
-        <div
-          className={`tab nested${extra}${a.status === "waiting" ? " bga-waiting" : ""}`}
-          onClick={() => onOpenBgAgent(a.id, a.name)}
-        >
-          <span className="tab-icon">
-            {/* a unique mesh-gradient blob per agent; it drifts while working
-                and desaturates while a reservation waits its turn */}
-            <MeshAvatar
-              seed={a.id}
-              size={16}
-              animating={a.status === "working"}
-              muted={a.status === "waiting"}
-            />
-          </span>
-          <MarqueeText className="tab-title" text={a.name} />
-          {/* the category header already names the role when grouped */}
-          {!grouped && a.role.id !== "general" && (
-            <span className="bga-role">{a.role.label}</span>
-          )}
-          {a.status === "waiting" && <span className="bga-state">waiting</span>}
-          {a.status === "done" && (
-            <span className="bga-done" style={{ color: a.color }}>
-              <AgentDoneChatIcon />
-            </span>
-          )}
-          {(a.status === "failed" || a.status === "stopped") && (
-            <span className="bga-state">{a.status}</span>
-          )}
-          {owned.length > 0 && (
-            <button
-              className={`bga-chev${hidden ? " closed" : ""}`}
-              title={hidden ? "Show terminals" : "Hide terminals"}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleBgSessions(a.id);
-              }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-          )}
-          <button
-            className="tab-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              stopOrRemoveBgAgent(a.id);
-            }}
-          >
-            <CloseSquareIcon />
-          </button>
-        </div>
-        {!hidden && owned.map((s) => renderSessionRow(s, `${extra} session-sub`))}
-      </div>
-    );
-  };
-
-  // A chat's background agents render as a tree: plain delegated (general)
-  // agents stay flat, while role agents are grouped under a category header
-  // ("Reviewers", "Editors", …) so a workflow's team reads at a glance.
-  const renderOwnedAgents = (owned: BgAgent[], sub: string) => {
-    const order: string[] = [];
-    const byRole = new Map<string, BgAgent[]>();
-    for (const a of owned) {
-      const key = a.role.id === "general" ? "general" : a.role.id;
-      if (!byRole.has(key)) {
-        byRole.set(key, []);
-        order.push(key);
-      }
-      byRole.get(key)!.push(a);
-    }
-    return order.map((key) => {
-      const group = byRole.get(key)!;
-      // General agents, and any role with only ONE agent, render flat (with their
-      // small role chip) — a category header only earns its place for 2+ of a role.
-      if (key === "general" || group.length < 2)
-        return <div key={`grp-${key}`}>{group.map((a) => renderBgAgentRow(a, sub))}</div>;
-      return (
-        <div key={`grp-${key}`}>
-          <div className={`bga-cat${sub}`}>
-            <span className="bga-cat-name">{group[0].role.label}s</span>
-          </div>
-          {group.map((a) => renderBgAgentRow(a, sub, true))}
-        </div>
-      );
-    });
-  };
-
   const renderTab = (tab: Tab, nested: boolean) => {
-    // An agent chat acts as a folder for the sessions it spawned.
     const ls = leaves(tab.root);
     const leafCount = ls.length;
     // A terminal running a CLI agent gets a second line: the folder the agent
@@ -704,14 +526,6 @@ export default function Sidebar({
     const cliCwd = cli?.cwd ?? "";
     const wt = cliCwd ? cli?.worktree : null;
     const subtitle = cliCwd ? tildePath(wt ? wt.repo : cliCwd, home) : "";
-    const ownedSessions =
-      ls.length === 1 && ls[0].kind === "agent"
-        ? sessions.filter((s) => s.ownerId === ls[0].id)
-        : [];
-    const ownedAgents =
-      ls.length === 1 && ls[0].kind === "agent"
-        ? bgAgents.filter((a) => a.ownerId === ls[0].id)
-        : [];
     return (
       <div
         key={tab.id}
@@ -783,9 +597,6 @@ export default function Sidebar({
             <CloseSquareIcon />
           </button>
         </div>
-        {/* terminals the chat launched sit ABOVE its sub-agents */}
-        {ownedSessions.map((s) => renderSessionRow(s, nested ? " session-sub" : ""))}
-        {renderOwnedAgents(ownedAgents, nested ? " session-sub" : "")}
       </div>
     );
   };
@@ -817,27 +628,12 @@ export default function Sidebar({
   const looseTabs = tabs.filter(
     (t) =>
       !pinnedTabIds.has(t.id) &&
-      // background-session viewers live ONLY in the Sessions group
-      !leaves(t.root).some((l) => isBackgroundTerm(l.id)) &&
-      // bg-agent chat viewers live ONLY as their agent's row
-      !leaves(t.root).some((l) => l.kind === "agent" && l.agentId.startsWith("bg:")) &&
       (!t.workspaceId || !workspaces.some((w) => w.id === t.workspaceId)),
   );
 
   return (
     <aside className="sidebar">
       <div className="side-top">
-        <button
-          className="side-action"
-          onClick={onOpenAgent}
-          title="New agent thread"
-        >
-          <span className="tab-icon">
-            <NewAgentIcon />
-          </span>
-          <span>New agent</span>
-        </button>
-
         <button
           className="side-action side-search"
           onClick={onOpenSearch}
@@ -957,7 +753,7 @@ export default function Sidebar({
           <span className="side-header-actions">
             <button
               className="side-add workspaces-action"
-              title="Close all terminals & chats"
+              title="Close all tabs"
               onClick={onCloseAll}
             >
               <BroomIcon />
@@ -1085,48 +881,6 @@ export default function Sidebar({
             })}
           </div>
         </div>
-
-        {orphanSessions.length > 0 && (
-          <div className="ws-group">
-            <div
-              className="side-row ws-row"
-              onClick={() => setSessionsOpen((o) => !o)}
-            >
-              <span
-                className={`tab-icon ws-folder ${sessionsOpen ? "is-open" : "is-closed"}`}
-              >
-                <FolderIcon />
-                <FolderOpenIcon />
-              </span>
-              <span className="side-name">Sessions</span>
-              {!sessionsOpen && (
-                <span className="ws-count">{orphanSessions.length}</span>
-              )}
-            </div>
-            <div className={`ws-tabs${sessionsOpen ? "" : " closed"}`}>
-              <div className="ws-tabs-inner">
-                {orphanSessions.map((s) => renderSessionRow(s))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {orphanAgents.length > 0 && (
-          <div className="ws-group">
-            <div className="side-row ws-row">
-              <span className="tab-icon ws-folder is-open">
-                <FolderIcon />
-                <FolderOpenIcon />
-              </span>
-              <span className="side-name">Agents</span>
-            </div>
-            <div className="ws-tabs">
-              <div className="ws-tabs-inner">
-                {orphanAgents.map((a) => renderBgAgentRow(a))}
-              </div>
-            </div>
-          </div>
-        )}
 
         {sections.commands && (
           <>

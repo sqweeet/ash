@@ -14,7 +14,7 @@
   shape-rendering: geometricPrecision;
 }
 
-/* pinned top: New agent / Search / New terminal / Pinned — stays put */
+/* pinned top: Search / New terminal / Pinned — stays put */
 .side-top {
   flex-shrink: 0;
   display: flex;
@@ -114,7 +114,7 @@
 }
 
 /* Category header (Workspaces / Commands / …) — pinned to the top of the
-   scroll area so only the chats/rows below it scroll. Solid opaque bg so
+   scroll area so only the rows below it scroll. Solid opaque bg so
    scrolling rows never bleed through; the 20px top gap is padding (not margin)
    so it stays part of the header box when stuck instead of a see-through
    strip. Kept compact — a bottom fade here just reads as an ugly gap. */
@@ -475,10 +475,10 @@
   flex-shrink: 0;
 }
 
-/* a new chat/terminal row easing into the list — a quiet fade only, no
+/* a new tab row easing into the list — a quiet fade only, no
    scale (scaling a thin row read as a jitter, not a settle). Fires only when
    a row actually mounts (React keeps existing rows by id), so it plays for a
-   genuinely new chat, not on every re-render. */
+   genuinely new tab, not on every re-render. */
 @keyframes tab-in {
   from {
     opacity: 0;
@@ -518,9 +518,10 @@
   margin-left: 16px;
 }
 
-/* session row under an agent chat that is itself nested in a workspace */
-.tab.nested.session-sub {
-  margin-left: 32px;
+/* plain breathing room where the "Terminals" header used to be */
+.loose-gap {
+  height: 10px;
+  flex-shrink: 0;
 }
 
 .tab-title {
@@ -814,7 +815,7 @@
   top: 0;
 }
 
-/* a block is its row plus any sub-rows (a chat's terminals): "after" lands
+/* a block is its row (and anything nested in it): "after" lands
    below all of them */
 .tab-item::after {
   bottom: 0;
@@ -836,26 +837,6 @@
    the pointer */
 .tab-item.dragging {
   opacity: 0.4;
-}
-
-/* agent tab icon: center dots pulse gently while the agent works */
-.chat-dot {
-  animation: chatDotPulse 1.4s ease-in-out infinite;
-}
-.chat-dot.d2 {
-  animation-delay: 0.22s;
-}
-.chat-dot.d3 {
-  animation-delay: 0.44s;
-}
-@keyframes chatDotPulse {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-  40% {
-    opacity: 1;
-  }
 }
 
 .spin-wrap {

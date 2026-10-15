@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Remove Ash's built-in agent: the chat panes, model providers and API keys, background agents, Safe mode, chat history and import, and agent notifications. Ash now focuses on the CLI agents you run in its terminals.
+- Drop the saved provider settings, including API keys, from `~/.ash/settings.json` on first launch. "Clear on exit" now offers only terminals; a saved "Chats + terminals" choice keeps clearing terminals.
+
+### Sidebar
+
+- Show when a CLI agent is working: Claude Code's title spinner is read from the terminal, and the tab title shines while a turn runs. Spinner glyphs no longer leak into tab titles.
+- Fade long tab titles at the edge and scroll them on hover instead of cutting them off with "…".
+
+### Terminal
+
+- Give emoji two cells (Unicode 11 widths), matching ConPTY and TUIs, so table borders no longer zigzag.
+
 ## 1.2.1
 
 ### Sidebar

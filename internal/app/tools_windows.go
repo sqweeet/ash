@@ -35,45 +35,6 @@ func (Tools) DetectBins(names []string) []string {
 	return out
 }
 
-// ResolveBash returns an absolute path to a real POSIX bash (Git for Windows /
-// MSYS2), skipping the WSL launcher masquerading as `bash` on Windows — both
-// C:\Windows\System32\bash.exe and the WindowsApps App Execution Alias (a 0-
-// byte reparse stub). Neither can run Windows-side git/ls in a Windows cwd.
-func (Tools) ResolveBash() string {
-	pathEnv := os.Getenv("PATH")
-	for _, dir := range filepath.SplitList(pathEnv) {
-		if isSystemDir(dir) {
-			continue
-		}
-		cand := filepath.Join(dir, "bash.exe")
-		if fi, err := os.Stat(cand); err == nil && fi.Size() > 0 {
-			return cand
-		}
-	}
-	return ""
-}
-
-func isSystemDir(dir string) bool {
-	s := strings.ToLower(filepath.Clean(dir))
-	return strings.Contains(s, `\windows\system32`) ||
-		strings.Contains(s, `\windows\syswow64`) ||
-		strings.Contains(s, `\windows\sysnative`) ||
-		strings.Contains(s, `\microsoft\windowsapps`)
-}
-
-// FindEditors returns the subset of known editor CLIs present on PATH
-// (code, cursor, zed, …). The frontend lists these as "Open in…" actions.
-func (Tools) FindEditors() []string {
-	names := []string{"code", "code-insiders", "cursor", "zed", "zed-dev", "windsurf", "trae", "clave"}
-	found := []string{}
-	for _, n := range names {
-		if _, err := exec.LookPath(n); err == nil {
-			found = append(found, n)
-		}
-	}
-	return found
-}
-
 // SshHosts parses Host entries from ~/.ssh/config (Windows: USERPROFILE).
 // Wildcard/negated hosts are excluded — only concrete hostnames.
 func (Tools) SshHosts() []string {

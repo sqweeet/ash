@@ -2,9 +2,7 @@
 import * as Fs from "../../wailsjs/go/app/Fs";
 import * as Git from "../../wailsjs/go/app/Git";
 import * as Tools from "../../wailsjs/go/app/Tools";
-import * as Sandbox from "../../wailsjs/go/app/Sandbox";
 import * as Pty from "../../wailsjs/go/app/Pty";
-import * as Process from "../../wailsjs/go/app/Process";
 import * as Updater from "../../wailsjs/go/app/Updater";
 import * as AppBinding from "../../wailsjs/go/app/App";
 
@@ -44,10 +42,6 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>)
       return Tools.SshHosts().then((r: string[] | null) => (r ?? []) as unknown as T);
     case "open_in":
       return Tools.OpenIn(args?.app as string, args?.path as string, args?.isDir as boolean) as Promise<T>;
-    case "resolve_bash":
-      return Tools.ResolveBash() as Promise<T>;
-    case "find_editors":
-      return Tools.FindEditors().then((r: string[] | null) => (r ?? []) as unknown as T);
 
     // ── pty ──────────────────────────────────────────────────
     case "pty_backend":
@@ -70,18 +64,6 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>)
     case "pty_foreground_process":
       return Pty.PtyForegroundProcess(args?.id as string) as Promise<T>;
 
-    // ── one-shot processes ───────────────────────────────────
-    case "process_run":
-      return Process.Run(
-        args?.id as string,
-        args?.program as string,
-        (args?.args as string[] | undefined) ?? [],
-        (args?.cwd as string | undefined) ?? "",
-        (args?.timeoutMs as number | undefined) ?? 120_000,
-      ) as Promise<T>;
-    case "process_cancel":
-      return Process.Cancel(args?.id as string) as Promise<T>;
-
     // ── updater (self-update against GitHub Releases) ────────
     case "check_update":
       return Updater.CheckUpdate() as Promise<T>;
@@ -94,18 +76,6 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>)
     case "app_info":
       // AppInfo is on the root App binding, not Updater.
       return AppBinding.AppInfo() as unknown as Promise<T>;
-
-    // ── sandbox ────────────────────────────────────────────
-    case "sandbox_copy":
-      return Sandbox.Copy(args?.source as string) as Promise<T>;
-    case "sandbox_changes":
-      return (Sandbox.Changes(args?.sandbox as string, args?.project as string) as Promise<unknown[]>).then(
-        (r) => (r ?? []) as unknown as T,
-      );
-    case "sandbox_merge":
-      return Sandbox.Merge(args?.sandbox as string, args?.project as string, args?.files as string[]) as Promise<T>;
-    case "sandbox_remove":
-      return Sandbox.Remove(args?.sandbox as string) as Promise<T>;
 
     default:
       return Promise.reject(new Error(`Unknown backend command "${cmd}"`));

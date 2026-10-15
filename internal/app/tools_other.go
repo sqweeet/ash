@@ -33,24 +33,6 @@ func (Tools) DetectBins(names []string) []string {
 	return out
 }
 
-func (Tools) ResolveBash() string {
-	if _, err := exec.LookPath("bash"); err == nil {
-		return "bash"
-	}
-	return ""
-}
-
-func (Tools) FindEditors() []string {
-	names := []string{"code", "code-insiders", "cursor", "zed", "zed-dev", "windsurf"}
-	found := []string{}
-	for _, n := range names {
-		if _, err := exec.LookPath(n); err == nil {
-			found = append(found, n)
-		}
-	}
-	return found
-}
-
 func (Tools) SshHosts() []string {
 	home, err := os.UserHomeDir()
 	if err != nil {

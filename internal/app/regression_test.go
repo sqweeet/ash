@@ -1,10 +1,8 @@
 package app
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -45,29 +43,6 @@ func TestGitParsers(t *testing.T) {
 	}
 	if got := parseGitDiff("12\t3\tfile name\n-\t-\tbinary\n2\t4\tother\n"); got != (GitDiff{14, 7}) {
 		t.Fatal(got)
-	}
-}
-
-func TestProcessOutputHelper(t *testing.T) {
-	if os.Args[len(os.Args)-1] != "ash-output-helper" {
-		return
-	}
-	fmt.Fprint(os.Stdout, strings.Repeat("O", 256*1024))
-	fmt.Fprint(os.Stderr, strings.Repeat("E", 256*1024))
-	os.Exit(0)
-}
-
-func TestProcessDrainsBothOutputs(t *testing.T) {
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := NewProcess().Run("output", exe, []string{"-test.run=^TestProcessOutputHelper$", "--", "ash-output-helper"}, t.TempDir(), 10000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Stdout != strings.Repeat("O", 256*1024) || out.Stderr != strings.Repeat("E", 256*1024) {
-		t.Fatalf("truncated output: stdout=%d stderr=%d", len(out.Stdout), len(out.Stderr))
 	}
 }
 

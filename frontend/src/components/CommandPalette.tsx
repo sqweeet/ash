@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Tab, Workspace } from "../App";
 import { leaves } from "../lib/layout";
-import { discoverImports, IMPORT_SOURCE_LABEL } from "../lib/agent-engine/import";
-import type { ImportedSessionMeta } from "../lib/agent-engine/import/types";
 
 interface CommandPaletteProps {
   tabs: Tab[];
@@ -12,7 +10,6 @@ interface CommandPaletteProps {
   onNewTab: () => void;
   onOpenFolder: () => void;
   onOpenSettings: () => void;
-  onImport: (meta: ImportedSessionMeta) => void;
   onClose: () => void;
 }
 
@@ -49,11 +46,6 @@ const TermIcon = () => (
     <path fillRule="evenodd" clipRule="evenodd" d="M8.367 1.25H15.633C16.7251 1.24999 17.5906 1.24999 18.2883 1.30699C19.0017 1.36527 19.6053 1.48688 20.1565 1.76772C21.0502 2.22312 21.7769 2.94978 22.2323 3.84355C22.5131 4.39472 22.6347 4.99834 22.693 5.71173C22.75 6.40935 22.75 7.27484 22.75 8.36698V15.633C22.75 16.7252 22.75 17.5906 22.693 18.2883C22.6347 19.0017 22.5131 19.6053 22.2323 20.1565C21.7769 21.0502 21.0502 21.7769 20.1565 22.2323C19.6053 22.5131 19.0017 22.6347 18.2883 22.693C17.5906 22.75 16.7252 22.75 15.633 22.75H8.36698C7.27484 22.75 6.40935 22.75 5.71173 22.693C4.99834 22.6347 4.39472 22.5131 3.84355 22.2323C2.94978 21.7769 2.22312 21.0502 1.76772 20.1565C1.48688 19.6053 1.36527 19.0017 1.30699 18.2883C1.24999 17.5906 1.24999 16.7252 1.25 15.633V8.367C1.24999 7.27486 1.24999 6.40935 1.30699 5.71173C1.36527 4.99834 1.48688 4.39472 1.76772 3.84355C2.22312 2.94978 2.94978 2.22312 3.84355 1.76772C4.39472 1.48688 4.99834 1.36527 5.71173 1.30699C6.40935 1.24999 7.27486 1.24999 8.367 1.25ZM5.83388 2.80201C5.21325 2.85271 4.829 2.94909 4.52453 3.10423C3.913 3.41582 3.41582 3.913 3.10423 4.52453C2.94909 4.829 2.85271 5.21325 2.80201 5.83388C2.75058 6.46327 2.75 7.26752 2.75 8.4V15.6C2.75 16.7325 2.75058 17.5367 2.80201 18.1661C2.85271 18.7867 2.94909 19.171 3.10423 19.4755C3.41582 20.087 3.913 20.5842 4.52453 20.8958C4.829 21.0509 5.21325 21.1473 5.83388 21.198C6.46327 21.2494 7.26752 21.25 8.4 21.25H15.6C16.7325 21.25 17.5367 21.2494 18.1661 21.198C18.7867 21.1473 19.171 21.0509 19.4755 20.8958C20.087 20.5842 20.5842 20.087 20.8958 19.4755C21.0509 19.171 21.1473 18.7867 21.198 18.1661C21.2494 17.5367 21.25 16.7325 21.25 15.6V8.4C21.25 7.26752 21.2494 6.46327 21.198 5.83388C21.1473 5.21325 21.0509 4.829 20.8958 4.52453C20.5842 3.913 20.087 3.41582 19.4755 3.10423C19.171 2.94909 18.7867 2.85271 18.1661 2.80201C17.5367 2.75058 16.7325 2.75 15.6 2.75H8.4C7.26752 2.75 6.46327 2.75058 5.83388 2.80201Z" />
   </svg>
 );
-const ChatIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-    <path fillRule="evenodd" clipRule="evenodd" d="M22.75 12C22.75 6.06294 17.9371 1.25 12 1.25C6.06294 1.25 1.25 6.06294 1.25 12C1.25 13.7183 1.65371 15.3445 2.37213 16.7869C2.47933 17.0021 2.50208 17.2219 2.4526 17.4068L1.857 19.6328C1.44927 21.1566 2.84337 22.5507 4.3672 22.143L6.59324 21.5474C6.77814 21.4979 6.99791 21.5207 7.21315 21.6279C8.65553 22.3463 10.2817 22.75 12 22.75C17.9371 22.75 22.75 17.9371 22.75 12ZM12 2.75C17.1086 2.75 21.25 6.89137 21.25 12C21.25 17.1086 17.1086 21.25 12 21.25C10.5189 21.25 9.12121 20.9025 7.88191 20.2852C7.38451 20.0375 6.78973 19.9421 6.20553 20.0984L3.97949 20.694C3.57066 20.8034 3.19663 20.4293 3.30602 20.0205L3.90163 17.7945C4.05794 17.2103 3.96254 16.6155 3.7148 16.1181C3.09752 14.8788 2.75 13.4811 2.75 12C2.75 6.89137 6.89137 2.75 12 2.75Z" />
-  </svg>
-);
 const FileIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     <path d="M14 3v4a1 1 0 0 0 1 1h4" />
@@ -61,28 +53,10 @@ const FileIcon = () => (
   </svg>
 );
 
-const ImportIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3v12" />
-    <path d="m8 11 4 4 4-4" />
-    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-  </svg>
-);
-
-function relDate(ms: number): string {
-  if (!ms) return "";
-  const d = Math.floor((Date.now() - ms) / 86400000);
-  if (d <= 0) return "today";
-  if (d === 1) return "yesterday";
-  if (d < 30) return `${d}d ago`;
-  return new Date(ms).toLocaleDateString();
-}
-
 // Match the sidebar: pick the icon by what the single-leaf tab holds.
 function tabItemIcon(t: Tab) {
   const ls = leaves(t.root);
   const kind = ls.length === 1 ? ls[0].kind : "term";
-  if (kind === "agent") return <ChatIcon />;
   if (kind === "file") return <FileIcon />;
   return <TermIcon />;
 }
@@ -94,27 +68,13 @@ export default function CommandPalette({
   onNewTab,
   onOpenFolder,
   onOpenSettings,
-  onImport,
   onClose,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [closing, setClosing] = useState(false);
-  // "import" mode replaces the tab/action list with importable Claude Code / Pi
-  // sessions discovered from disk.
-  const [mode, setMode] = useState<"normal" | "import">("normal");
-  const [imports, setImports] = useState<ImportedSessionMeta[] | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const enterImport = () => {
-    setMode("import");
-    setQuery("");
-    if (imports === null) discoverImports().then(setImports).catch(() => setImports([]));
-  };
-  const exitImport = () => {
-    setMode("normal");
-    setQuery("");
-  };
   // Sliding selection highlight (glides between rows instead of snapping).
   const [hl, setHl] = useState<{ top: number; height: number; ready: boolean }>({
     top: 0,
@@ -182,13 +142,6 @@ export default function CommandPalette({
             onClose();
           },
         },
-        {
-          key: "import",
-          label: "Import chat…",
-          sub: "Claude Code · Pi",
-          icon: <ImportIcon />,
-          run: enterImport,
-        },
       ] as Item[]
     ).filter((a) => !q || a.label.toLowerCase().includes(q));
 
@@ -198,35 +151,9 @@ export default function CommandPalette({
     ].filter((g) => g.items.length > 0);
   }, [tabs, workspaces, q]);
 
-  // Sessions available to import, grouped by source, filtered by the query.
-  const importGroups = useMemo(() => {
-    if (!imports) return [];
-    const bySource: Record<string, Item[]> = {};
-    for (const m of imports) {
-      if (q && !m.title.toLowerCase().includes(q) && !m.cwd.toLowerCase().includes(q)) continue;
-      (bySource[m.source] ||= []).push({
-        key: `imp:${m.path}`,
-        label: m.title,
-        sub: [relDate(m.updatedAt), m.cwd.split(/[\\/]/).filter(Boolean).pop(), `${m.msgCount} msg`]
-          .filter(Boolean)
-          .join(" · "),
-        icon: m.source === "pi" ? <TermIcon /> : <ChatIcon />,
-        run: () => {
-          onImport(m);
-          onClose();
-        },
-      });
-    }
-    return Object.entries(bySource).map(([src, items]) => ({
-      title: IMPORT_SOURCE_LABEL[src as keyof typeof IMPORT_SOURCE_LABEL] ?? src,
-      items,
-    }));
-  }, [imports, q]);
+  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
-  const activeGroups = mode === "import" ? importGroups : groups;
-  const flat = useMemo(() => activeGroups.flatMap((g) => g.items), [activeGroups]);
-
-  useEffect(() => setSel(0), [q, mode]);
+  useEffect(() => setSel(0), [q]);
   useEffect(() => {
     if (sel >= flat.length) setSel(Math.max(0, flat.length - 1));
   }, [flat.length, sel]);
@@ -253,8 +180,7 @@ export default function CommandPalette({
       flat[sel]?.run();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      if (mode === "import") exitImport();
-      else dismiss();
+      dismiss();
     }
   };
 
@@ -273,17 +199,13 @@ export default function CommandPalette({
             className="palette-input"
             autoFocus
             value={query}
-            placeholder={
-              mode === "import"
-                ? "Filter chats to import…"
-                : "Search tabs or run a command"
-            }
+            placeholder="Search tabs or run a command"
             spellCheck={false}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKey}
           />
-          <kbd className="palette-esc" onClick={mode === "import" ? exitImport : dismiss}>
-            {mode === "import" ? "Back" : "Esc"}
+          <kbd className="palette-esc" onClick={dismiss}>
+            Esc
           </kbd>
         </div>
         <div className="palette-list" ref={listRef}>
@@ -296,16 +218,10 @@ export default function CommandPalette({
               }}
             />
           )}
-          {mode === "import" && imports === null && (
-            <div className="palette-empty">Scanning Claude Code &amp; Pi sessions…</div>
-          )}
-          {mode === "import" && imports !== null && flat.length === 0 && (
-            <div className="palette-empty">No importable chats found</div>
-          )}
-          {mode !== "import" && flat.length === 0 && (
+          {flat.length === 0 && (
             <div className="palette-empty">No matches</div>
           )}
-          {activeGroups.map((g) => (
+          {groups.map((g) => (
             <div className="palette-group" key={g.title}>
               <div className="palette-head">{g.title}</div>
               {g.items.map((it) => {

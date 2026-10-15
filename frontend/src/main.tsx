@@ -3,8 +3,6 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import ErrorBoundary from "./ErrorBoundary";
 import { applyAppTheme, applyUiScale, getSettings, loadSettings } from "./lib/settings";
-import { loadChats } from "./lib/chat-store";
-import { loadModelsDev, brandForModelId, providerLogo, prefetchLogos } from "./lib/models-dev";
 
 // UI font (app chrome). Geist Mono / JetBrains Mono below stay for the terminal.
 import "@fontsource/inter/400.css";
@@ -39,8 +37,6 @@ import "./styles/terminal.css";
 import "./styles/welcome.css";
 import "./styles/browser.css";
 import "./styles/file-viewer.css";
-import "./styles/agent-chat.css";
-import "./styles/agent-composer.css";
 import "./styles/explorer.css";
 import "./styles/context-menu.css";
 import "./styles/toast.css";
@@ -108,33 +104,10 @@ async function start() {
   try {
   // Kick off every independent startup read at once instead of serially:
   //  - settings.json (needed for the theme, so we await it first),
-  //  - all chat files (App builds its initial tabs from them),
   //  - the fonts the terminal measures its cell size against.
   // The @font-face rules are already registered by the CSS imports above, so
-  // font loading can begin immediately, overlapping the disk reads.
+  // font loading can begin immediately, overlapping the disk read.
   const settingsReady = loadSettings();
-  const chatsReady = loadChats().catch(() => {});
-  // Preload the models.dev catalog alongside the disk reads so brand logos
-  // are resolved by the time an agent pane opens. Once the catalog is in,
-  // prefetch the SVG for every configured model's brand into the HTTP cache so
-  // the picker's <img> paints on the first frame — without this the icons
-  // flashed in a millisecond late (catalog fetch + per-icon SVG fetch stacked).
-  // Optional network data must not delay opening a local terminal.
-  void Promise.all([settingsReady, loadModelsDev()])
-    .then(() => {
-      const eng = getSettings().engine;
-      const urls = new Set<string>();
-      for (const p of eng.providers)
-        for (const m of p.models) {
-          if (m.logo) urls.add(m.logo);
-          else {
-            const brand = brandForModelId(m.modelId);
-            if (brand) urls.add(providerLogo(brand));
-          }
-        }
-      prefetchLogos(urls);
-    })
-    .catch(() => {});
   // Terminals measure cell size at creation — the mono font must be in first.
   // Load a Cyrillic sample too so that subset is ready before any RU text.
   // Preload EVERY selectable terminal mono face (not just the default) so that
@@ -168,9 +141,9 @@ async function start() {
   applyAppTheme(getSettings().theme);
   applyUiScale();
 
-  // Block the first render only on what it truly needs: the restored tabs and
-  // the terminal fonts (both already in flight, overlapping each other).
-  await Promise.all([chatsReady, fontsReady]);
+  // Block the first render only on what it truly needs: the terminal fonts
+  // (already in flight, overlapping the settings read).
+  await fontsReady;
 
   // No StrictMode: its double-mounted effects would spawn every PTY twice.
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

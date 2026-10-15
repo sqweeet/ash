@@ -160,8 +160,7 @@ test('selecting Gray persists only the requested preference and updates both pal
   initial.theme = 'nord';
   initial.fontSize = 16;
   initial.sidebarWidth = 245;
-  initial.engine.providers[0].apiKey = 'test-key-not-a-real-secret';
-  initial.engine.safeMode = true;
+  initial.sections.ssh = true;
   const { mod, writes, properties, flush } = settingsHarness(JSON.stringify(initial));
   await mod.loadSettings();
   let notified;
@@ -179,4 +178,30 @@ test('selecting Gray persists only the requested preference and updates both pal
   mod.updateSettings({ themeLight: true });
   assert.equal(properties.get('color-scheme'), 'light');
   assert.equal(properties.get('--bg'), themes.resolvedPreset(themes.DEFAULT_THEME_ID, true).app.bg);
+});
+
+test('the removed agent engine block and its API keys are scrubbed from settings.json on load', async () => {
+  const saved = {
+    theme: 'nord',
+    fontSize: 16,
+    clearOnExit: 'all',
+    engine: { providers: [{ id: 'x', apiKey: 'test-key-not-a-real-secret', models: [] }] },
+  };
+  const { mod, writes } = settingsHarness(JSON.stringify(saved));
+  await mod.loadSettings();
+  assert.equal('engine' in mod.getSettings(), false);
+  assert.equal(writes.length, 1, 'rewritten right away, not on the next change');
+  assert.equal(JSON.stringify(writes[0]).includes('test-key-not-a-real-secret'), false);
+  assert.equal(writes[0].theme, 'nord');
+  assert.equal(writes[0].fontSize, 16);
+  assert.equal(writes[0].clearOnExit, 'terminals', '"chats + terminals" keeps clearing terminals');
+
+  const chatsOnly = settingsHarness(JSON.stringify({ clearOnExit: 'chats', engine: {} }));
+  await chatsOnly.mod.loadSettings();
+  assert.equal(chatsOnly.mod.getSettings().clearOnExit, 'none');
+
+  const clean = settingsHarness(JSON.stringify({ theme: 'nord', clearOnExit: 'terminals' }));
+  await clean.mod.loadSettings();
+  assert.equal(clean.writes.length, 0, 'a file without the old block is not rewritten');
+  assert.equal(clean.mod.getSettings().clearOnExit, 'terminals');
 });

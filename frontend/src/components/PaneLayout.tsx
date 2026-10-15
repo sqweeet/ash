@@ -4,11 +4,10 @@ import TerminalPane from "./TerminalPane";
 import BrowserPane from "./BrowserPane";
 import { PaneNode } from "../lib/layout";
 
-// Lazily loaded so their heavy, on-demand-only dependencies don't parse at
-// startup: FileViewer pulls in CodeMirror + 13 language packs, AgentThread
-// pulls react-markdown. A fresh terminal / Welcome launch never touches them.
+// Lazily loaded so its heavy, on-demand-only dependencies don't parse at
+// startup: FileViewer pulls in CodeMirror + 13 language packs. A fresh
+// terminal / Welcome launch never touches it.
 const FileViewer = lazy(() => import("./FileViewer"));
-const AgentThread = lazy(() => import("./AgentThread"));
 
 // All callbacks take tabId as their first argument so App can pass the SAME
 // stable (useCallback) functions to every tab — that's what lets memo() below
@@ -24,8 +23,6 @@ interface PaneLayoutProps {
   onRatio: (tabId: string, splitId: string, ratio: number) => void;
   onUrlChange: (tabId: string, paneId: string, url: string) => void;
   onClosePane: (paneId: string) => void;
-  /** An agent pane names its tab after the first prompt. */
-  onRename: (tabId: string, title: string) => void;
 }
 
 function PaneLayout(props: PaneLayoutProps) {
@@ -39,7 +36,6 @@ function PaneLayout(props: PaneLayoutProps) {
     onRatio,
     onUrlChange,
     onClosePane,
-    onRename,
   } = props;
 
   if (node.type === "leaf") {
@@ -65,19 +61,6 @@ function PaneLayout(props: PaneLayoutProps) {
           onClose={() => onClosePane(node.id)}
         />
       );
-    } else if (node.kind === "agent") {
-      content = (
-        <AgentThread
-          id={node.id}
-          agentId={node.agentId}
-          cwd={node.cwd}
-          name={node.name}
-          dimmed={multi && activePane !== node.id}
-          onFocus={() => onFocus(tabId, node.id)}
-          onClose={() => onClosePane(node.id)}
-          onRename={(title) => onRename(tabId, title)}
-        />
-      );
     } else {
       content = (
         <TerminalPane
@@ -88,7 +71,7 @@ function PaneLayout(props: PaneLayoutProps) {
         />
       );
     }
-    // Suspense covers the lazily-loaded panes (file/changes/agent); it's a no-op
+    // Suspense covers the lazily-loaded file pane; it's a no-op
     // for the eager terminal/web panes. Fallback fills the pane with the app bg
     // so there's no white flash during the (fast, local) chunk load.
     return (

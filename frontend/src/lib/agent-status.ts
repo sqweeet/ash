@@ -1,6 +1,6 @@
-// Tiny cross-component store: AgentThread reports whether its pane is
-// working/done, the Sidebar re-renders its tab icons off it. Keyed by the
-// agent pane's leaf id (the same id AgentThread receives as a prop).
+// Tiny cross-component store: agent-detect reports whether the CLI agent in a
+// terminal is working/done (parsed from its OSC title), the Sidebar re-renders
+// its tab rows off it. Keyed by the terminal pane's leaf id.
 
 export type AgentStatus = "working" | "done";
 

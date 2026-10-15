@@ -58,7 +58,7 @@ SetCompressor /SOLID lzma
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Ash ${INFO_PRODUCTVERSION}"
-!define MUI_WELCOMEPAGE_TEXT "A terminal and AI workspace for Windows.$\r$\n$\r$\nSetup installs Ash with the darker Gray theme as the default for new profiles. Existing themes, settings, and chats are preserved.$\r$\n$\r$\nPlease close Ash before continuing."
+!define MUI_WELCOMEPAGE_TEXT "A quiet terminal for Windows, built for CLI coding agents.$\r$\n$\r$\nSetup installs Ash with the darker Gray theme as the default for new profiles. Existing themes and settings are preserved.$\r$\n$\r$\nPlease close Ash before continuing."
 !define MUI_FINISHPAGE_TEXT "Ash ${INFO_PRODUCTVERSION} is installed.$\r$\n$\r$\nOpen Ash from the Start menu or desktop shortcut. You can change the Gray theme in Settings > Appearance."
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
@@ -124,7 +124,7 @@ Section
     !insertmacro wails.webview2runtime
 
     # Overwrite only files owned by Ash. Do not wipe the install folder or
-    # touch ~/.ash: upgrades must keep user files, chats, and preferences.
+    # touch ~/.ash: upgrades must keep user files and preferences.
     SetOutPath $INSTDIR
 
     !insertmacro wails.files

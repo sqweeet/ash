@@ -3,7 +3,6 @@ import { invoke } from "../backend/core";
 import { homeDir } from "../backend/path";
 import { toast } from "./toast";
 import { DEFAULT_THEME_ID, FONTS, THEMES, resolvedPreset } from "./themes";
-import type { ThinkingFormat } from "./agent-engine/thinking-config";
 // Re-exported so existing `from "./settings"` importers (SettingsModal) keep working.
 export { FONTS, THEMES };
 
@@ -11,86 +10,6 @@ export interface SectionToggles {
   commands: boolean;
   agents: boolean;
   ssh: boolean;
-}
-
-export type EnginePermissionMode = "full-auto" | "confirm";
-
-// Model reasoning depth. "auto" sends no reasoning_effort (model's native
-// default); "none" disables thinking; the rest map straight to the API's
-// reasoning_effort value (verified accepted by GLM-5.2 on Fireworks).
-export type ReasoningEffort = "auto" | "none" | "low" | "medium" | "high" | "max";
-
-// Selectable context-window sizes for the model editor's slider.
-export const CONTEXT_STOPS = [128_000, 200_000, 500_000, 1_000_000] as const;
-
-export interface EngineModel {
-  /** Stable local id. */
-  id: string;
-  /** Display name. */
-  name: string;
-  /** API model id sent to the provider. */
-  modelId: string;
-  /** Optional "fast" variant id, used when useFast is on. */
-  fastId?: string;
-  /** Context window in tokens (drives the battery gauge + compaction). */
-  contextWindow: number;
-  /** Whether the model accepts image inputs (else images are stripped). */
-  supportsImages: boolean;
-  /** Per-model thinking/reasoning format override. When set, the provider sends
-   *  this shape instead of the family default — so a GLM on a proxy that only
-   *  accepts reasoning_effort can use that, while one on raw Zhipu can use
-   *  enable_thinking. Undefined = family heuristic (compat-safe default). */
-  thinkingFormat?: ThinkingFormat;
-  /** models.dev provider logo URL, set when the model is auto-detected. */
-  logo?: string;
-}
-
-// An OpenAI-compatible endpoint the user has configured. Each provider carries
-// its own model presets + key, so the user can keep several (Fireworks, a
-// Cursor-style proxy, OpenRouter, …) and switch between them from the chat.
-export interface EngineProvider {
-  /** Stable local id. */
-  id: string;
-  /** Display name shown in Settings + the chat model picker. */
-  name: string;
-  /** OpenAI-compatible base URL (everything before /chat/completions). */
-  baseUrl: string;
-  apiKey: string;
-  /** Model presets scoped to this provider. */
-  models: EngineModel[];
-}
-
-export interface EngineSettings {
-  /** User-managed providers. The active one is sent on every turn. */
-  providers: EngineProvider[];
-  activeProviderId: string;
-  /** Active model id within the active provider. */
-  activeModelId: string;
-  /** Use the active model's fast variant when it has one. */
-  useFast: boolean;
-  permissionMode: EnginePermissionMode;
-  /** Safe mode: writing background agents work in a sandbox copy of the project
-   * and their changes are merged back only on the user's approval. */
-  safeMode: boolean;
-  /** Model reasoning depth (default for new chats; per-chat togglable in UI). */
-  reasoningEffort: ReasoningEffort;
-  /** Play a sound on task done / permission request. */
-  sounds: boolean;
-  /** OS notification on task done / permission request. */
-  notifications: boolean;
-}
-
-/** The provider whose config is sent on every turn (first if the id dangles). */
-export function activeProvider(s: Settings): EngineProvider {
-  return (
-    s.engine.providers.find((p) => p.id === s.engine.activeProviderId) ?? s.engine.providers[0]
-  );
-}
-
-/** The active provider's active model (first if the id dangles). */
-export function activeEngineModel(s: Settings): EngineModel | undefined {
-  const p = activeProvider(s);
-  return p?.models.find((m) => m.id === s.engine.activeModelId) ?? p?.models[0];
 }
 
 export interface Settings {
@@ -110,11 +29,10 @@ export interface Settings {
   sidebarWidth: number;
   explorerWidth: number;
   sections: SectionToggles;
-  /** What to wipe when the app quits: nothing, chats only, terminals only, or
-   * both. Terminals aren't persisted (only live in memory), so clearing them
-   * is a session teardown; chats are on-disk files deleted here. */
-  clearOnExit: "none" | "chats" | "terminals" | "all";
-  engine: EngineSettings;
+  /** What to wipe when the app quits: nothing, or the terminals. Terminals
+   * aren't persisted (only live in memory), so clearing them is a session
+   * teardown. */
+  clearOnExit: "none" | "terminals";
 }
 
 export const DEFAULT_FONT_SIZE = 13;
@@ -132,34 +50,6 @@ export const DEFAULT_SETTINGS: Settings = {
   explorerWidth: 230,
   sections: { commands: true, agents: false, ssh: false },
   clearOnExit: "none",
-  engine: {
-    providers: [
-      {
-        id: "fireworks",
-        name: "Fireworks",
-        baseUrl: "https://api.fireworks.ai/inference/v1",
-        apiKey: "",
-        models: [
-          {
-            id: "glm-5p2",
-            name: "GLM-5.2",
-            modelId: "accounts/fireworks/models/glm-5p2",
-            fastId: "accounts/fireworks/routers/glm-5p2-fast",
-            contextWindow: 128_000,
-            supportsImages: false,
-          },
-        ],
-      },
-    ],
-    activeProviderId: "fireworks",
-    activeModelId: "glm-5p2",
-    useFast: true,
-    permissionMode: "confirm",
-    safeMode: false,
-    reasoningEffort: "auto",
-    sounds: true,
-    notifications: true,
-  },
 };
 
 export function fontFamily(s: Settings): string {
@@ -217,106 +107,18 @@ const LEGACY_KEY = "spark.settings";
 let current: Settings = { ...DEFAULT_SETTINGS };
 let settingsPath: string | null = null;
 
-function normalizeReasoning(v: any): ReasoningEffort {
-  return v === "none" || v === "low" || v === "medium" || v === "high" || v === "max" ? v : "auto";
-}
-
-function normalizeModels(arr: any[]): EngineModel[] {
-  return arr
-    .filter((m) => m && typeof m === "object")
-    .map((m) => ({
-      id: String(m.id ?? crypto.randomUUID()),
-      name: String(m.name ?? "Model"),
-      modelId: String(m.modelId ?? ""),
-      fastId: m.fastId ? String(m.fastId) : undefined,
-      contextWindow: Number(m.contextWindow) || 128_000,
-      supportsImages: !!m.supportsImages,
-      thinkingFormat: m.thinkingFormat,
-      logo: m.logo ? String(m.logo) : undefined,
-    }));
-}
-
-function normalizeProviders(arr: any[]): EngineProvider[] {
-  return arr
-    .filter((p) => p && typeof p === "object")
-    .map((p) => ({
-      id: String(p.id ?? crypto.randomUUID()),
-      name: String(p.name ?? "Provider"),
-      baseUrl: String(p.baseUrl ?? ""),
-      apiKey: String(p.apiKey ?? ""),
-      models: Array.isArray(p.models) ? normalizeModels(p.models) : [],
-    }));
-}
-
-function defaultProviders(): EngineProvider[] {
-  return DEFAULT_SETTINGS.engine.providers.map((p) => ({ ...p, models: p.models.map((m) => ({ ...m })) }));
-}
-
-/** Fold a parsed `engine` blob (which may be the new multi-provider shape OR a
- * legacy single-provider shape) into a valid EngineSettings. Legacy state is
- * migrated into one provider so the user keeps their old key + models. */
-function mergeEngine(parsedEngine: any): EngineSettings {
-  const common: EngineSettings = {
-    ...DEFAULT_SETTINGS.engine,
-    useFast: parsedEngine?.useFast ?? false,
-    permissionMode: parsedEngine?.permissionMode === "full-auto" ? "full-auto" : "confirm",
-    safeMode: !!parsedEngine?.safeMode,
-    reasoningEffort: normalizeReasoning(parsedEngine?.reasoningEffort),
-    sounds: parsedEngine?.sounds ?? true,
-    notifications: parsedEngine?.notifications ?? true,
-  };
-
-  // New shape: a providers array is present.
-  if (parsedEngine && Array.isArray(parsedEngine.providers)) {
-    const providers = normalizeProviders(parsedEngine.providers);
-    if (providers.length === 0)
-      return { ...common, providers: defaultProviders(), activeProviderId: DEFAULT_SETTINGS.engine.activeProviderId, activeModelId: DEFAULT_SETTINGS.engine.activeModelId };
-    const activeProviderId = providers.some((p) => p.id === parsedEngine.activeProviderId)
-      ? parsedEngine.activeProviderId
-      : providers[0].id;
-    const ap = providers.find((p) => p.id === activeProviderId)!;
-    const activeModelId = ap.models.some((m) => m.id === parsedEngine.activeModelId)
-      ? parsedEngine.activeModelId
-      : (ap.models[0]?.id ?? "");
-    return { ...common, providers, activeProviderId, activeModelId };
-  }
-
-  // Legacy shape (pre multi-provider): fold openaiCompat + the global model
-  // list into a single provider. anthropic was never wired up (config.ts threw
-  // on it), so it's dropped here rather than carried as dead state.
-  const old = parsedEngine ?? {};
-  if (!old.openaiCompat && !Array.isArray(old.models))
-    return { ...common, providers: defaultProviders(), activeProviderId: DEFAULT_SETTINGS.engine.activeProviderId, activeModelId: DEFAULT_SETTINGS.engine.activeModelId };
-
-  const baseUrl = String(old.openaiCompat?.baseUrl ?? DEFAULT_SETTINGS.engine.providers[0].baseUrl);
-  const apiKey = String(old.openaiCompat?.apiKey ?? "");
-  const models: EngineModel[] = Array.isArray(old.models) && old.models.length
-    ? normalizeModels(old.models)
-    : [
-        {
-          id: "migrated",
-          name: String(old.openaiCompat?.model ?? "").split("/").pop() || "Model",
-          modelId: String(old.openaiCompat?.model ?? ""),
-          contextWindow: 128_000,
-          supportsImages: false,
-        },
-      ];
-  const activeModelId = models.some((m) => m.id === old.activeModelId) ? old.activeModelId : (models[0]?.id ?? "");
-  return {
-    ...common,
-    providers: [{ id: "migrated", name: "OpenAI-compatible", baseUrl, apiKey, models }],
-    activeProviderId: "migrated",
-    activeModelId,
-  };
-}
-
 function mergeParsed(parsed: any): Settings {
   const merged: Settings = {
     ...DEFAULT_SETTINGS,
     ...parsed,
     sections: { ...DEFAULT_SETTINGS.sections, ...(parsed.sections ?? {}) },
-    engine: mergeEngine(parsed?.engine),
   };
+  // The built-in agent is gone: drop its block (providers + API keys) so the
+  // keys don't linger in settings.json. loadSettings rewrites the file.
+  delete (merged as any).engine;
+  // "chats"/"all" cleared the agent's saved chats too; only terminals remain.
+  if ((merged.clearOnExit as string) === "all") merged.clearOnExit = "terminals";
+  else if (merged.clearOnExit !== "terminals") merged.clearOnExit = "none";
   // migrate older defaults to the current, slimmer one
   if (merged.sidebarWidth === 168 || merged.sidebarWidth === 216)
     merged.sidebarWidth = DEFAULT_SETTINGS.sidebarWidth;
@@ -359,9 +161,31 @@ export async function loadSettings(): Promise<void> {
   }
   if (text) {
     try {
-      current = mergeParsed(JSON.parse(text));
+      const parsed = JSON.parse(text);
+      current = mergeParsed(parsed);
+      // scrub the removed agent's API keys from disk right away
+      if (parsed && typeof parsed === "object" && "engine" in parsed) persistSettings();
     } catch {
       // keep defaults on a corrupt file
+    }
+  }
+}
+
+/** Full reset: delete the on-disk app data under ~/.ash/ (settings, plus the
+ * removed agent's leftover chats) — skills are left alone. localStorage is
+ * cleared by the caller. */
+export async function resetAshData(): Promise<void> {
+  let base = "";
+  try {
+    base = (await homeDir()).replace(/[\\/]+$/, "") + "\\.ash";
+  } catch {
+    return;
+  }
+  for (const p of [`${base}\\chats`, `${base}\\settings.json`]) {
+    try {
+      await invoke("delete_path", { path: p });
+    } catch {
+      // missing / already gone — fine
     }
   }
 }
@@ -388,8 +212,7 @@ function persistSettings() {
 
 export function updateSettings(patch: Partial<Settings>) {
   current = { ...current, ...patch };
-  // Debounce the disk write: API key / base URL / model-id fields call this per
-  // keystroke, and each call otherwise serialized + wrote the whole file (with
+  // Debounce the disk write: text fields call this per keystroke, and each call otherwise serialized + wrote the whole file (with
   // rapid writes able to resolve out of order). In-memory state + listeners
   // update synchronously so the UI and live terminals stay responsive.
   clearTimeout(persistTimer);

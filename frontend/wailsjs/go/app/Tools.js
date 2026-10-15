@@ -18,10 +18,6 @@ export function DetectBins(arg1) {
   return window['go']['app']['Tools']['DetectBins'](arg1);
 }
 
-export function FindEditors() {
-  return window['go']['app']['Tools']['FindEditors']();
-}
-
 export function OpenDialog(arg1, arg2) {
   return window['go']['app']['Tools']['OpenDialog'](arg1, arg2);
 }
@@ -32,10 +28,6 @@ export function OpenIn(arg1, arg2, arg3) {
 
 export function OpenPath(arg1) {
   return window['go']['app']['Tools']['OpenPath'](arg1);
-}
-
-export function ResolveBash() {
-  return window['go']['app']['Tools']['ResolveBash']();
 }
 
 export function SshHosts() {

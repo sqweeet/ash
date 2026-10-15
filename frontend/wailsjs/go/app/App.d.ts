@@ -5,6 +5,4 @@ export function AppInfo():Promise<Record<string, string>>;
 
 export function Close():Promise<void>;
 
-export function Notify(arg1:string,arg2:string):Promise<void>;
-
 export function Ready():Promise<void>;

@@ -18,20 +18,6 @@ export namespace app {
 	        this.size = source["size"];
 	    }
 	}
-	export class FileChange {
-	    path: string;
-	    status: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FileChange(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.status = source["status"];
-	    }
-	}
 	export class GitWorktree {
 	    name: string;
 	    branch: string;
@@ -113,26 +99,6 @@ export namespace app {
 	    }
 	}
 	
-	export class ProcessOutput {
-	    code?: number;
-	    stdout: string;
-	    stderr: string;
-	    timed_out: boolean;
-	    cancelled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProcessOutput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.code = source["code"];
-	        this.stdout = source["stdout"];
-	        this.stderr = source["stderr"];
-	        this.timed_out = source["timed_out"];
-	        this.cancelled = source["cancelled"];
-	    }
-	}
 	export class PtyInfo {
 	    backend: string;
 	    buildNumber: number;
@@ -145,20 +111,6 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.backend = source["backend"];
 	        this.buildNumber = source["buildNumber"];
-	    }
-	}
-	export class SandboxInfo {
-	    path: string;
-	    files: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SandboxInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.files = source["files"];
 	    }
 	}
 	export class UpdateRelease {

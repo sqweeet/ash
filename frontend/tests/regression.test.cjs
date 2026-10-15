@@ -27,7 +27,7 @@ const tick = () => new Promise(setImmediate);
 test('Wails routes preserve argument defaults, file creation and empty lists', async () => {
   const calls = [];
   const imports = {};
-  for (const service of ['Fs', 'Git', 'Tools', 'Sandbox', 'Pty', 'Process', 'Updater', 'App']) {
+  for (const service of ['Fs', 'Git', 'Tools', 'Pty', 'Updater', 'App']) {
     imports[`../../wailsjs/go/app/${service}`] = new Proxy({}, {
       get: (_, method) => (...args) => {
         calls.push([service, method, ...args]);
@@ -40,8 +40,6 @@ test('Wails routes preserve argument defaults, file creation and empty lists', a
   assert.deepEqual(calls.pop(), ['Fs', 'CreateFile', 'new.txt']);
   await invoke('pty_spawn', { id: 'test', cols: 80, rows: 24 });
   assert.equal(JSON.stringify(calls.pop()), JSON.stringify(['Pty', 'PtySpawn', 'test', 80, 24, '', '', []]));
-  await invoke('process_run', { id: 'test', program: 'pwsh' });
-  assert.equal(JSON.stringify(calls.pop()), JSON.stringify(['Process', 'Run', 'test', 'pwsh', [], '', 120000]));
   assert.equal(JSON.stringify(await invoke('list_dir', { path: '.' })), '[]');
   await assert.rejects(invoke('missing_command'), /Unknown backend command/);
 });
@@ -86,65 +84,4 @@ test('native window close can be intercepted for cleanup and then completed', as
   await win.onCloseRequested(() => {});
   closeRequest();
   assert.equal(closes, 2, 'no cleanup configured: close immediately');
-});
-
-test('delegating writer agents requires approval', async () => {
-  const { PermissionGate } = load('lib/agent-engine/permissions.ts');
-  for (const tool of ['agent', 'spawn_agents', 'run_workflow']) {
-    let request;
-    const gate = new PermissionGate('confirm', req => { request = req; });
-    const approved = gate.check(tool, {});
-    assert.ok(request, `${tool} must prompt`);
-    gate.resolve(request.id, false);
-    assert.equal(await approved, false);
-  }
-});
-
-test('web fetch rejects local files and restricts redirect protocols', async () => {
-  const calls = [];
-  const { webFetchTool } = load('lib/agent-engine/tools/web-fetch.ts', {
-    './run-process': { runProcess: async (...args) => { calls.push(args); return { code: 0, stdout: 'ok' }; } },
-    './html-to-text': { htmlToText: text => text },
-  });
-  for (const url of ['file:///C:/secret', 'ftp://example.com/', '--output', 'not a URL']) {
-    assert.equal((await webFetchTool.run({ url }, {})).ok, false);
-  }
-  assert.equal(calls.length, 0);
-  assert.equal((await webFetchTool.run({ url: 'https://example.com/' }, {})).ok, true);
-  const args = calls[0][1];
-  assert.equal(args[args.indexOf('--proto') + 1], '=http,https');
-  assert.equal(args[args.indexOf('--proto-redir') + 1], '=http,https');
-});
-
-test('deleting a chat waits for in-flight writes and cancels queued saves', async () => {
-  let finishWrite;
-  const disk = new Map();
-  let writes = 0;
-  const store = load('lib/chat-store.ts', {
-    '../backend/path': { homeDir: async () => 'C:/home' },
-    './toast': { toast: () => {} },
-    '../backend/core': { invoke: async (command, args) => {
-      if (command === 'list_dir') return [];
-      if (command === 'write_text') {
-        writes++;
-        await new Promise(resolve => { finishWrite = resolve; });
-        disk.set(args.path, args.contents);
-      }
-      if (command === 'delete_path') disk.delete(args.path);
-    } },
-  }, { localStorage: { getItem: () => null, removeItem: () => {} } });
-  await store.loadChats();
-  const chat = { chatId: 'test', items: [], history: [] };
-  store.saveChat(chat);
-  await tick();
-  assert.equal(writes, 1);
-  store.saveChat(chat);
-  store.removeChat('test');
-  finishWrite();
-  await tick();
-  assert.equal(writes, 1);
-  assert.equal(disk.size, 0);
-  store.saveChat(chat);
-  await tick();
-  assert.equal(writes, 1, 'late unmount save must not resurrect a deleted chat');
 });

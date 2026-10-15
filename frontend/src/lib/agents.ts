@@ -28,22 +28,9 @@ export interface AgentDef {
   /** Known model presets; empty id = agent default. */
   models?: AgentModel[];
   extra?: AgentExtra[];
-  /**
-   * Runs on Ash's own agent-engine (src/lib/agent-engine) instead of launching
-   * an external terminal command.
-   */
-  engine?: true;
 }
 
 export const AGENTS: AgentDef[] = [
-  {
-    id: "ash",
-    name: "Ash",
-    vendor: "Ash",
-    bin: "",
-    launch: "",
-    engine: true,
-  },
   {
     id: "claude",
     name: "Claude Code",

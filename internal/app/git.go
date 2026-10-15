@@ -111,7 +111,7 @@ type GitWorktree struct {
 
 // linkedWorktree returns the linked worktree containing dir, or nil when dir
 // is in a main checkout or outside any repo. It reads the .git file and HEAD
-// directly instead of spawning git: the agent poll calls it every 2s.
+// directly instead of spawning git: the CLI-agent poll calls it every 2s.
 func linkedWorktree(dir string) *GitWorktree {
 	if dir == "" {
 		return nil

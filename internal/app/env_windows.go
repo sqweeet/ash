@@ -12,7 +12,7 @@ import (
 
 // ensureSystemPath restores the effective Windows PATH when a GUI launcher
 // hands Ash a truncated one. Adding System32 alone can launch PowerShell, but
-// it still leaves the agent unable to find git, rg, node/npm, bun, and other
+// it still leaves terminals unable to find git, rg, node/npm, bun, and other
 // developer tools installed through the normal machine/user PATH entries.
 //
 // Read both persistent registry sources, then append only missing entries to

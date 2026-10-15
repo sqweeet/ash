@@ -6,7 +6,7 @@
   z-index: 90;
 }
 
-/* Same floating shell as the composer's agent / mode menus: squircle with
+/* Floating menu shell: squircle with
    concentric squircle rows, a hairline ring instead of a border. */
 .ctx-menu {
   position: fixed;

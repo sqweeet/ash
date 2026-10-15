@@ -1,6 +1,6 @@
 /* ── Modals ────────────────────────────────────────────── */
 
-/* compact square-ish confirm dialog (close chat) */
+/* compact square-ish confirm dialog (close all) */
 .confirm-modal {
   width: 300px;
   max-width: calc(100vw - 48px);
@@ -82,84 +82,6 @@
 .confirm-actions button:disabled {
   opacity: 0.45;
   cursor: default;
-}
-
-/* ── Safe-mode sandbox merge ─────────────────────────────── */
-.sandbox-modal {
-  width: 460px;
-}
-/* "setting up safe mode" — a soft setup header instead of a bold announcement */
-.safe-setup-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.safe-setup-title {
-  font-size: 14.5px;
-  font-weight: 500;
-  color: var(--text);
-}
-.sandbox-modal p {
-  margin-bottom: 14px;
-}
-.sandbox-error {
-  margin-bottom: 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #f0a3a3;
-}
-.sandbox-empty {
-  margin-bottom: 18px;
-  padding: 18px 0;
-  text-align: center;
-  font-size: 12.5px;
-  color: var(--faint);
-}
-.sandbox-changes {
-  margin-bottom: 18px;
-  max-height: 320px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.sandbox-change {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 5px 6px;
-  border-radius: 8px;
-  corner-shape: squircle;
-  font-size: 12.5px;
-  cursor: default;
-}
-.sandbox-change:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-.sandbox-change input {
-  flex-shrink: 0;
-  accent-color: var(--muted);
-}
-.sandbox-status {
-  flex-shrink: 0;
-  width: 52px;
-  font-size: 9.5px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.sandbox-status.s-added {
-  color: var(--text);
-}
-.sandbox-status.s-deleted {
-  color: #f0a3a3;
-}
-.sandbox-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
 }
 
 .modal-backdrop {

@@ -10,10 +10,6 @@ export function Close() {
   return window['go']['app']['App']['Close']();
 }
 
-export function Notify(arg1, arg2) {
-  return window['go']['app']['App']['Notify'](arg1, arg2);
-}
-
 export function Ready() {
   return window['go']['app']['App']['Ready']();
 }

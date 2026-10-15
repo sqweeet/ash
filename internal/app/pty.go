@@ -36,8 +36,8 @@ func (p *Pty) PtyBackend() PtyInfo {
 }
 
 // PtySpawn uses the frontend pane id to route terminal events.
-// program/args let the agent
-// spawn a specific shell, null = auto-detect (pwsh/powershell/cmd on Windows).
+// program/args spawn an explicit program (ssh, a chosen shell); empty =
+// auto-detect the shell (pwsh/powershell/cmd on Windows).
 func (p *Pty) PtySpawn(id string, cols, rows uint16, cwd string, program string, args []string) (string, error) {
 	if cols == 0 {
 		cols = 80

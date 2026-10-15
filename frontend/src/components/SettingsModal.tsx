@@ -211,16 +211,10 @@ import {
   updateSettings,
   Settings,
   SectionToggles,
-  CONTEXT_STOPS,
   DEFAULT_SETTINGS,
-  EngineModel,
-  EngineProvider,
+  resetAshData,
 } from "../lib/settings";
-import type { ThinkingFormat } from "../lib/agent-engine/thinking-config";
 import { invoke } from "../backend/core";
-import { resetAshData } from "../lib/chat-store";
-import { loadModelsDev, lookupModel, providerLogo, modelLogo } from "../lib/models-dev";
-import type { ModelInfo } from "../lib/models-dev";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -249,13 +243,6 @@ const TERMINAL_ICON = () => (
     <path d="M12 19h8" />
   </svg>
 );
-const AGENTS_ICON = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="11" width="18" height="10" rx="2" />
-    <circle cx="12" cy="5" r="2" />
-    <path d="M12 7v4M8 16h.01M16 16h.01" />
-  </svg>
-);
 const SHORTCUTS_ICON = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -274,7 +261,6 @@ const CATEGORIES = [
   { id: "layout", label: "Layout" },
   { id: "sections", label: "Sidebar sections" },
   { id: "terminal", label: "Terminal" },
-  { id: "agents", label: "Agents" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "about", label: "About" },
 ] as const;
@@ -293,14 +279,9 @@ const SETTING_SEARCH_ITEMS: { key: string; cat: CategoryId; label: string; hint:
   { key: "sections.ssh", cat: "sections", label: "SSH", hint: "SSH hosts section", keywords: "hosts config remote" },
   { key: "termPad", cat: "terminal", label: "Padding", hint: "Space between the app surface and terminal grid", keywords: "gap inset spacing пробел отступ" },
   { key: "termRadius", cat: "terminal", label: "Corner radius", hint: "Rounding of terminal pane corners", keywords: "round radius скругление" },
-  { key: "clearOnExit", cat: "terminal", label: "Clear on exit", hint: "Wipe chats or terminals when the app quits", keywords: "reset delete cleanup quit close" },
-  { key: "engine.permissionMode", cat: "agents", label: "Permission mode", hint: "Confirm risky actions or full auto", keywords: "approval bash file edits" },
-  { key: "engine.sounds", cat: "agents", label: "Sound", hint: "Chime when a task finishes or needs approval", keywords: "audio notification ding" },
-  { key: "engine.notifications", cat: "agents", label: "Notifications", hint: "System notification when the window isn’t focused", keywords: "toast alert" },
-  { key: "providers", cat: "agents", label: "Providers", hint: "OpenAI-compatible endpoints", keywords: "api base url key openrouter fireworks" },
-  { key: "models", cat: "agents", label: "Models", hint: "Active model, context window, vision and fast variant", keywords: "glm grok claude gpt gemini reasoning context" },
+  { key: "clearOnExit", cat: "terminal", label: "Clear on exit", hint: "Close all terminals when the app quits", keywords: "reset delete cleanup quit close" },
   { key: "shortcuts", cat: "shortcuts", label: "Shortcuts", hint: "Keyboard shortcuts", keywords: "hotkeys keybindings ctrl alt" },
-  { key: "reset", cat: "about", label: "Reset everything", hint: "Delete chats and reset app data", keywords: "factory default wipe" },
+  { key: "reset", cat: "about", label: "Reset everything", hint: "Reset all app data", keywords: "factory default wipe" },
 ];
 
 function RestoreButton({
@@ -365,16 +346,6 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       .then((info) => setAppVersion(info?.version ?? ""))
       .catch(() => setAppVersion(""));
   }, []);
-  const [modelEdit, setModelEdit] = useState<EngineModel | null>(null);
-  // models.dev auto-detect: the match for the edited model id, and whether the
-  // catalog has loaded (so the model list can resolve logos). initialModelId
-  // lets us fill fields only when the id is CHANGED, never on merely opening one.
-  const [modelDetect, setModelDetect] = useState<ModelInfo | null>(null);
-  const [catReady, setCatReady] = useState(false);
-  const initialModelId = useRef("");
-  const [modelIsNew, setModelIsNew] = useState(false);
-  const [providerEdit, setProviderEdit] = useState<EngineProvider | null>(null);
-  const [providerIsNew, setProviderIsNew] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const [searchPos, setSearchPos] = useState({ left: 0, top: 0, w: 196, h: 32 });
 
@@ -398,173 +369,19 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     setSettings(getSettings());
   };
 
-  // ── providers + models ───────────────────────────────────────
-  const ctxLabel = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}K`);
-  const providers = settings.engine.providers;
-  const activeProv =
-    providers.find((p) => p.id === settings.engine.activeProviderId) ?? providers[0];
-  const models = activeProv?.models ?? [];
-  const activeModel = models.find((m) => m.id === settings.engine.activeModelId);
-
-  const setProviders = (list: EngineProvider[], patch?: Partial<Settings["engine"]>) =>
-    apply({ engine: { ...settings.engine, providers: list, ...(patch ?? {}) } });
-
-  // Switching provider also jumps to that provider's first model so the
-  // resolver never silently falls back to a model that doesn't exist there.
-  const setActiveProvider = (id: string) => {
-    const p = providers.find((x) => x.id === id);
-    apply({
-      engine: { ...settings.engine, activeProviderId: id, activeModelId: p?.models[0]?.id ?? "" },
-    });
-  };
-  const openAddProvider = () => {
-    setProviderIsNew(true);
-    setProviderEdit({ id: crypto.randomUUID(), name: "", baseUrl: "", apiKey: "", models: [] });
-  };
-  const openEditProvider = (p: EngineProvider) => {
-    setProviderIsNew(false);
-    setProviderEdit({ ...p });
-  };
-  const saveProvider = () => {
-    if (!providerEdit || !providerEdit.name.trim() || !providerEdit.baseUrl.trim()) return;
-    const clean: EngineProvider = {
-      ...providerEdit,
-      name: providerEdit.name.trim(),
-      baseUrl: providerEdit.baseUrl.trim(),
-    };
-    const list = providerIsNew
-      ? [...providers, clean]
-      : providers.map((p) => (p.id === clean.id ? clean : p));
-    // Adding a brand-new provider also makes it active so the user can start
-    // filling in its models immediately.
-    const patch: Partial<Settings["engine"]> = providerIsNew
-      ? { activeProviderId: clean.id, activeModelId: clean.models[0]?.id ?? "" }
-      : {};
-    setProviders(list, patch);
-    setProviderEdit(null);
-  };
-  const removeProvider = (id: string) => {
-    if (providers.length <= 1) return;
-    const list = providers.filter((p) => p.id !== id);
-    const patch: Partial<Settings["engine"]> = {};
-    if (settings.engine.activeProviderId === id) {
-      patch.activeProviderId = list[0].id;
-      patch.activeModelId = list[0].models[0]?.id ?? "";
-    }
-    setProviders(list, patch);
-  };
-
-  // Models are scoped to the active provider — edits rewrite that provider's
-  // slice of the providers list.
-  const setModels = (list: EngineModel[], activeId?: string) => {
-    if (!activeProv) return;
-    const nextProviders = providers.map((p) =>
-      p.id === activeProv.id ? { ...p, models: list } : p,
-    );
-    setProviders(nextProviders, activeId ? { activeModelId: activeId } : {});
-  };
-  const openAddModel = () => {
-    setModelIsNew(true);
-    initialModelId.current = "";
-    setModelDetect(null);
-    setModelEdit({ id: crypto.randomUUID(), name: "", modelId: "", contextWindow: 128_000, supportsImages: false });
-  };
-  const openEditModel = (m: EngineModel) => {
-    setModelIsNew(false);
-    initialModelId.current = m.modelId;
-    setModelDetect(null);
-    setModelEdit({ ...m });
-  };
-  const saveModel = () => {
-    if (!modelEdit || !modelEdit.name.trim() || !modelEdit.modelId.trim()) return;
-    const clean: EngineModel = {
-      ...modelEdit,
-      name: modelEdit.name.trim(),
-      modelId: modelEdit.modelId.trim(),
-      fastId: modelEdit.fastId?.trim() || undefined,
-    };
-    const list = modelIsNew ? [...models, clean] : models.map((m) => (m.id === clean.id ? clean : m));
-    setModels(list, modelIsNew ? clean.id : undefined);
-    setModelEdit(null);
-  };
-  const removeModel = (id: string) => {
-    const list = models.filter((m) => m.id !== id);
-    if (!list.length) return;
-    setModels(list, settings.engine.activeModelId === id ? list[0].id : undefined);
-  };
-  const setActiveModel = (id: string) => apply({ engine: { ...settings.engine, activeModelId: id } });
-
-  // Load the models.dev catalog once (for logos + auto-detect); silent if offline.
-  useEffect(() => {
-    loadModelsDev()
-      .then(() => setCatReady(true))
-      .catch(() => {});
-  }, []);
-
-  // Auto-detect context window / vision / logo from models.dev by the edited
-  // model's id (debounced). Fills the fields when the id is CHANGED; on merely
-  // opening an existing model it only refreshes the derived logo, never clobbers
-  // a saved context window.
-  const editModelId = modelEdit?.modelId ?? "";
-  useEffect(() => {
-    const q = editModelId.trim();
-    if (!q) {
-      setModelDetect(null);
-      return;
-    }
-    let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        await loadModelsDev();
-      } catch {
-        return; // offline / failed — skip silently
-      }
-      if (!alive) return;
-      const info = lookupModel(q);
-      setModelDetect(info);
-      const changed = q !== initialModelId.current;
-      setModelEdit((cur) => {
-        if (!cur || cur.modelId.trim() !== q) return cur;
-        if (!info) return cur.logo ? { ...cur, logo: undefined } : cur;
-        return {
-          ...cur,
-          logo: providerLogo(info.provider),
-          ...(changed
-            ? {
-                contextWindow: info.contextWindow,
-                supportsImages: info.supportsImages,
-                name: cur.name.trim() ? cur.name : info.name,
-              }
-            : {}),
-        };
-      });
-    }, 400);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editModelId]);
-
   const applySection = (key: keyof SectionToggles, value: boolean) => {
     apply({ sections: { ...settings.sections, [key]: value } });
   };
 
-  // Esc dismisses the topmost open sub-modal first (edit-model or reset), and
-  // only closes the whole settings page when none is open.
+  // Esc dismisses the reset confirm first, and only closes the whole settings
+  // page when it isn't open.
   const resetOpenRef = useRef(resetOpen);
   resetOpenRef.current = resetOpen;
-  const modelEditRef = useRef(modelEdit);
-  modelEditRef.current = modelEdit;
-  const providerEditRef = useRef(providerEdit);
-  providerEditRef.current = providerEdit;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
-      if (modelEditRef.current) setModelEdit(null);
-      else if (providerEditRef.current) setProviderEdit(null);
-      else if (resetOpenRef.current) setResetOpen(false);
+      if (resetOpenRef.current) setResetOpen(false);
       else onClose();
     };
     window.addEventListener("keydown", onKey, true);
@@ -745,7 +562,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   <div className="setting-info">
                     <label>Interface scale</label>
                     <span className="setting-hint">
-                      Zoom the whole UI (sidebar, tabs, chat, panels)
+                      Zoom the whole UI (sidebar, tabs, panels)
                     </span>
                   </div>
                   <div className="setting-control">
@@ -916,8 +733,8 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   <div className="setting-info">
                     <label>Clear on exit</label>
                     <span className="setting-hint">
-                      Wipe data when the app quits — chats are deleted from disk,
-                      terminals are session-only
+                      Close every terminal when the app quits — terminals are
+                      session-only
                     </span>
                   </div>
                   <div className="setting-control">
@@ -926,9 +743,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                       onChange={(v) => apply({ clearOnExit: v as Settings["clearOnExit"] })}
                       options={[
                         { value: "none", label: "Keep everything" },
-                        { value: "chats", label: "Chats" },
                         { value: "terminals", label: "Terminals" },
-                        { value: "all", label: "Chats + terminals" },
                       ]}
                     />
                     <RestoreButton
@@ -937,218 +752,6 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     />
                   </div>
                 </div>
-              </section>
-            )}
-
-            {cat === "agents" && (
-              <section>
-                <h3>Agents</h3>
-                <div className={`setting-row${highlightKey === "engine.permissionMode" ? " setting-highlight" : ""}`} data-setting-key="engine.permissionMode">
-                  <div className="setting-info">
-                    <label>Permission mode</label>
-                    <span className="setting-hint">
-                      How Ash's built-in agent handles risky actions (bash,
-                      file edits/writes)
-                    </span>
-                  </div>
-                  <Select
-                    value={settings.engine.permissionMode}
-                    onChange={(v) =>
-                      apply({
-                        engine: {
-                          ...settings.engine,
-                          permissionMode: v as "full-auto" | "confirm",
-                        },
-                      })
-                    }
-                    options={[
-                      { value: "confirm", label: "Ask before risky actions" },
-                      { value: "full-auto", label: "Full auto (no prompts)" },
-                    ]}
-                  />
-                </div>
-                <div className={`setting-row${highlightKey === "engine.sounds" ? " setting-highlight" : ""}`} data-setting-key="engine.sounds">
-                  <div className="setting-info">
-                    <label>Sound</label>
-                    <span className="setting-hint">
-                      Chime when a task finishes or needs approval
-                    </span>
-                  </div>
-                  <Toggle
-                    checked={settings.engine.sounds}
-                    onChange={(v) =>
-                      apply({ engine: { ...settings.engine, sounds: v } })
-                    }
-                  />
-                </div>
-                <div className={`setting-row${highlightKey === "engine.notifications" ? " setting-highlight" : ""}`} data-setting-key="engine.notifications">
-                  <div className="setting-info">
-                    <label>Notifications</label>
-                    <span className="setting-hint">
-                      System notification when the window isn’t focused
-                    </span>
-                  </div>
-                  <Toggle
-                    checked={settings.engine.notifications}
-                    onChange={(v) =>
-                      apply({ engine: { ...settings.engine, notifications: v } })
-                    }
-                  />
-                </div>
-                <div className={`setting-row stack${highlightKey === "providers" ? " setting-highlight" : ""}`} data-setting-key="providers">
-                  <div className="setting-info">
-                    <label>Providers</label>
-                    <span className="setting-hint">
-                      OpenAI-compatible endpoints. The active one is used on every turn; its models
-                      are listed below.
-                    </span>
-                  </div>
-                  <div className="provider-list">
-                    {providers.map((p) => (
-                      <div
-                        key={p.id}
-                        className={`provider-row${p.id === settings.engine.activeProviderId ? " active" : ""}`}
-                        onClick={() => setActiveProvider(p.id)}
-                      >
-                        <span className="provider-radio" />
-                        <div className="provider-main">
-                          <span className="provider-name">{p.name}</span>
-                          <span className="provider-sub">{p.baseUrl}</span>
-                        </div>
-                        <span className="provider-badges">
-                          <span className="model-badge">
-                            {p.models.length} model{p.models.length === 1 ? "" : "s"}
-                          </span>
-                        </span>
-                        <button
-                          className="model-btn"
-                          title="Edit"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditProvider(p);
-                          }}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                          </svg>
-                        </button>
-                        {providers.length > 1 && (
-                          <button
-                            className="model-btn"
-                            title="Remove"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeProvider(p.id);
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                              <path d="M18 6 6 18M6 6l12 12" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="model-actions">
-                    <button className="settings-action" onClick={openAddProvider}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                      Add provider
-                    </button>
-                  </div>
-                </div>
-
-                <div className={`setting-row stack${highlightKey === "models" ? " setting-highlight" : ""}`} data-setting-key="models">
-                  <div className="setting-info">
-                    <label>Models{activeProv ? ` · ${activeProv.name}` : ""}</label>
-                    <span className="setting-hint">
-                      Pick the active model for the current provider. Add your own with its API id,
-                      context window, and whether it accepts images.
-                    </span>
-                  </div>
-                  {models.length === 0 ? (
-                    <div className="settings-empty">No models yet — add one below.</div>
-                  ) : (
-                    <div className="model-list">
-                      {models.map((m) => {
-                        const logo = catReady ? modelLogo(m) : m.logo;
-                        return (
-                        <div
-                          key={m.id}
-                          className={`model-row${m.id === settings.engine.activeModelId ? " active" : ""}`}
-                          onClick={() => setActiveModel(m.id)}
-                        >
-                          <span className="model-radio" />
-                          {logo && (
-                            <img
-                              className="model-logo"
-                              src={logo}
-                              alt=""
-                              onError={(e) => (e.currentTarget.style.display = "none")}
-                            />
-                          )}
-                          <div className="model-main">
-                            <span className="model-name">{m.name}</span>
-                            <span className="model-sub">{m.modelId}</span>
-                          </div>
-                          <span className="model-badges">
-                            <span className="model-badge">{ctxLabel(m.contextWindow)}</span>
-                            {m.supportsImages && <span className="model-badge">vision</span>}
-                            {m.fastId && <span className="model-badge">fast</span>}
-                          </span>
-                          <button
-                            className="model-btn"
-                            title="Edit"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditModel(m);
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M12 20h9" />
-                              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                            </svg>
-                          </button>
-                          {models.length > 1 && (
-                            <button
-                              className="model-btn"
-                              title="Remove"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeModel(m.id);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                                <path d="M18 6 6 18M6 6l12 12" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="model-actions">
-                    <button className="settings-action" onClick={openAddModel} disabled={!activeProv}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                      Add model
-                    </button>
-                    {activeModel?.fastId && (
-                      <label className="model-fast">
-                        <Toggle
-                          checked={settings.engine.useFast}
-                          onChange={(v) => apply({ engine: { ...settings.engine, useFast: v } })}
-                        />
-                        Use fast variant
-                      </label>
-                    )}
-                  </div>
-                </div>
-
               </section>
             )}
 
@@ -1174,14 +777,14 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
               <section>
                 <h3>About</h3>
                 <div className="settings-empty">
-                  Ash {appVersion || "dev"} — minimal agentic terminal.
+                  Ash {appVersion || "dev"} — minimal terminal.
                 </div>
 
                 <div className={`setting-row stack${highlightKey === "reset" ? " setting-highlight" : ""}`} data-setting-key="reset">
                   <div className="setting-info">
                     <label>Reset everything</label>
                     <span className="setting-hint">
-                      Deletes all chats and resets settings, workspaces and commands to defaults.
+                      Resets settings, workspaces and commands to defaults.
                       This can't be undone.
                     </span>
                   </div>
@@ -1199,8 +802,8 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             <div className="settings-modal" onMouseDown={(e) => e.stopPropagation()}>
               <div className="settings-modal-title">Reset everything?</div>
               <div className="settings-modal-hint">
-                This permanently deletes all chats and resets settings, workspaces and commands to
-                defaults. The app will restart. This can't be undone.
+                This resets settings, workspaces and commands to defaults. The app will
+                restart. This can't be undone.
               </div>
               <div className="settings-modal-actions">
                 <button className="settings-link" onClick={() => setResetOpen(false)} disabled={resetting}>
@@ -1214,200 +817,6 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           </div>
         )}
 
-        {modelEdit && (
-          <div className="settings-modal-overlay" onMouseDown={() => setModelEdit(null)}>
-            <div className="settings-modal" onMouseDown={(e) => e.stopPropagation()}>
-              <div className="settings-modal-title">{modelIsNew ? "Add model" : "Edit model"}</div>
-              <div className="model-form">
-                <label className="model-field">
-                  <span>Name</span>
-                  <input
-                    autoFocus
-                    spellCheck={false}
-                    placeholder="GLM-5.2"
-                    value={modelEdit.name}
-                    onChange={(e) => setModelEdit({ ...modelEdit, name: e.target.value })}
-                  />
-                </label>
-                <label className="model-field">
-                  <span>Model id</span>
-                  <input
-                    spellCheck={false}
-                    placeholder="accounts/fireworks/models/glm-5p2"
-                    value={modelEdit.modelId}
-                    onChange={(e) => setModelEdit({ ...modelEdit, modelId: e.target.value })}
-                  />
-                </label>
-
-                {modelDetect && (
-                  <div className="model-detected">
-                    <img
-                      className="model-logo"
-                      src={providerLogo(modelDetect.provider)}
-                      alt=""
-                      onError={(e) => (e.currentTarget.style.display = "none")}
-                    />
-                    <span className="model-detected-name">{modelDetect.name}</span>
-                    <span className="model-detected-meta">
-                      {ctxLabel(modelDetect.contextWindow)}
-                      {modelDetect.supportsImages ? " · vision" : ""} · models.dev
-                    </span>
-                  </div>
-                )}
-
-                {modelEdit.fastId !== undefined && (
-                  <label className="model-field">
-                    <span>Fast model id</span>
-                    <input
-                      spellCheck={false}
-                      placeholder="accounts/fireworks/routers/glm-5p2-fast"
-                      value={modelEdit.fastId}
-                      onChange={(e) => setModelEdit({ ...modelEdit, fastId: e.target.value })}
-                    />
-                  </label>
-                )}
-
-                <div className="model-field">
-                  <span>Context window</span>
-                  {(() => {
-                    const idx = Math.max(
-                      0,
-                      CONTEXT_STOPS.indexOf(modelEdit.contextWindow as (typeof CONTEXT_STOPS)[number]),
-                    );
-                    const fill = `${(idx / (CONTEXT_STOPS.length - 1)) * 100}%`;
-                    return (
-                      <>
-                        <input
-                          className="model-slider"
-                          type="range"
-                          min={0}
-                          max={CONTEXT_STOPS.length - 1}
-                          step={1}
-                          value={idx}
-                          style={{ "--fill": fill } as React.CSSProperties}
-                          onChange={(e) =>
-                            setModelEdit({ ...modelEdit, contextWindow: CONTEXT_STOPS[+e.target.value] })
-                          }
-                        />
-                        <div className="model-ticks">
-                          {CONTEXT_STOPS.map((s) => (
-                            <button
-                              key={s}
-                              className={s === modelEdit.contextWindow ? "on" : ""}
-                              onClick={() => setModelEdit({ ...modelEdit, contextWindow: s })}
-                            >
-                              {ctxLabel(s)}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* two boolean options share one row so the editor stays compact */}
-                <label className="model-field">
-                  <span>Thinking format</span>
-                  <Select
-                    value={modelEdit.thinkingFormat ?? "auto"}
-                    onChange={(v) =>
-                      setModelEdit({
-                        ...modelEdit,
-                        thinkingFormat: v === "auto" ? undefined : (v as ThinkingFormat),
-                      })
-                    }
-                    options={[
-                      { value: "auto", label: "Auto (safe default)" },
-                      { value: "reasoning_effort", label: "reasoning_effort (OpenAI-compat)" },
-                      { value: "enable_thinking", label: "enable_thinking (GLM/Zhipu)" },
-                      { value: "thinking_object", label: "thinking object (Anthropic)" },
-                      { value: "native", label: "Native (no param)" },
-                    ]}
-                  />
-                </label>
-                <div className="model-toggles">
-                  <label className="model-toggle-row">
-                    <span>Fast variant</span>
-                    <Toggle
-                      checked={modelEdit.fastId !== undefined}
-                      onChange={(v) => setModelEdit({ ...modelEdit, fastId: v ? "" : undefined })}
-                    />
-                  </label>
-                  <label className="model-toggle-row">
-                    <span>Vision</span>
-                    <Toggle
-                      checked={modelEdit.supportsImages}
-                      onChange={(v) => setModelEdit({ ...modelEdit, supportsImages: v })}
-                    />
-                  </label>
-                </div>
-              </div>
-              <div className="settings-modal-actions">
-                <button className="settings-link" onClick={() => setModelEdit(null)}>
-                  Cancel
-                </button>
-                <button
-                  className="settings-action"
-                  onClick={saveModel}
-                  disabled={!modelEdit.name.trim() || !modelEdit.modelId.trim()}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {providerEdit && (
-          <div className="settings-modal-overlay" onMouseDown={() => setProviderEdit(null)}>
-            <div className="settings-modal" onMouseDown={(e) => e.stopPropagation()}>
-              <div className="settings-modal-title">{providerIsNew ? "Add provider" : "Edit provider"}</div>
-              <div className="model-form">
-                <label className="model-field">
-                  <span>Name</span>
-                  <input
-                    autoFocus
-                    spellCheck={false}
-                    placeholder="Fireworks"
-                    value={providerEdit.name}
-                    onChange={(e) => setProviderEdit({ ...providerEdit, name: e.target.value })}
-                  />
-                </label>
-                <label className="model-field">
-                  <span>Base URL</span>
-                  <input
-                    spellCheck={false}
-                    placeholder="https://api.fireworks.ai/inference/v1"
-                    value={providerEdit.baseUrl}
-                    onChange={(e) => setProviderEdit({ ...providerEdit, baseUrl: e.target.value })}
-                  />
-                </label>
-                <label className="model-field">
-                  <span>API key</span>
-                  <input
-                    type="password"
-                    spellCheck={false}
-                    placeholder="sk-…"
-                    value={providerEdit.apiKey}
-                    onChange={(e) => setProviderEdit({ ...providerEdit, apiKey: e.target.value })}
-                  />
-                </label>
-              </div>
-              <div className="settings-modal-actions">
-                <button className="settings-link" onClick={() => setProviderEdit(null)}>
-                  Cancel
-                </button>
-                <button
-                  className="settings-action"
-                  onClick={saveProvider}
-                  disabled={!providerEdit.name.trim() || !providerEdit.baseUrl.trim()}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
     </div>
   );
 }

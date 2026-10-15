@@ -3,15 +3,7 @@ export type SplitDir = "row" | "col";
 export type Leaf =
   | { type: "leaf"; kind: "term"; id: string }
   | { type: "leaf"; kind: "web"; id: string; url: string }
-  | { type: "leaf"; kind: "file"; id: string; path: string }
-  | {
-      type: "leaf";
-      kind: "agent";
-      id: string;
-      agentId: string;
-      cwd: string;
-      name: string;
-    };
+  | { type: "leaf"; kind: "file"; id: string; path: string };
 
 export type PaneNode =
   | Leaf
@@ -39,13 +31,6 @@ export const fileLeaf = (id: string, path: string): Leaf => ({
   id,
   path,
 });
-
-export const agentLeaf = (
-  id: string,
-  agentId: string,
-  cwd: string,
-  name: string,
-): Leaf => ({ type: "leaf", kind: "agent", id, agentId, cwd, name });
 
 export function splitLeaf(
   node: PaneNode,

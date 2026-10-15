@@ -26,7 +26,7 @@ var (
 )
 
 // App is the root struct Wails binds to the frontend. Sub-systems (PTY, fs,
-// git, tools, sandbox, updater) hang off it so a single OnStartup feeds ctx
+// git, tools, updater) hang off it so a single OnStartup feeds ctx
 // into each, and a single OnShutdown tears them down. The frontend calls
 // their methods through frontend/src/backend and generated Wails bindings.
 type App struct {
@@ -38,8 +38,6 @@ type App struct {
 	fs         *Fs
 	git        *Git
 	tools      *Tools
-	process    *Process
-	sandbox    *Sandbox
 	updater    *Updater
 }
 
@@ -49,8 +47,6 @@ func NewApp() *App {
 		fs:      NewFs(),
 		git:     NewGit(),
 		tools:   NewTools(),
-		process: NewProcess(),
-		sandbox: NewSandbox(),
 		updater: NewUpdater(),
 	}
 }
@@ -132,13 +128,11 @@ func Run(assets embed.FS) error {
 		OnShutdown:      a.shutdown,
 		OnBeforeClose:   a.beforeClose,
 		Bind: []interface{}{
-			a,         // App (root) — AppInfo / Notify
+			a,         // App (root) — AppInfo / Ready / Close
 			a.pty,     // PtySpawn / PtyWrite / PtyResize / PtyKill
 			a.fs,      // ReadText / WriteText / DeletePath / ListDir / HomeDir
 			a.git,     // Branch / Status / DiffStat
-			a.tools,   // DetectBins / ResolveBash / FindEditors / SshHosts / OpenIn
-			a.process, // Run one-shot commands for agent tools
-			a.sandbox, // Copy / Changes / Merge / Remove
+			a.tools,   // DetectBins / SshHosts / OpenPath / OpenIn
 			a.updater, // CheckUpdate / DownloadUpdate / ApplyUpdate / Restart
 		},
 		Windows: &windows.Options{

@@ -36,13 +36,11 @@ import {
 export interface TermSession {
   id: string;
   term: Terminal;
-  /** null until a renderer is attached (background sessions start headless). */
+  /** Set by attachRenderer as soon as the session is created. */
   fit: FitAddon | null;
   webgl: WebglAddon | null;
-  /** null until a renderer is attached (background sessions start headless). */
+  /** Set by attachRenderer as soon as the session is created. */
   container: HTMLDivElement | null;
-  /** false for a headless background session that has never been opened. */
-  rendered: boolean;
   /** Last OSC window title seen from this terminal — used by agent detection
    *  to extract a conversation topic (Claude Code emits {spinner} {topic}). */
   lastTitle: string;
@@ -113,9 +111,7 @@ function pasteFromClipboard(id: string): void {
     .then((text) => {
       if (!text) return;
       used.add(id);
-      const term = getSession(id)?.term;
-      if (term) term.paste(text);
-      else ptyWrite(id, text); // headless session — no xterm to wrap, write raw
+      getSession(id)?.term.paste(text);
     })
     .catch(() => {});
 }
@@ -184,8 +180,6 @@ onSettingsChange((s) => {
       session.term.options.fontSize = s.fontSize;
       session.term.options.fontFamily = fam;
       session.term.options.theme = theme;
-      // Headless background sessions have no renderer to refit/repaint.
-      if (!session.rendered) return;
       // WebGL caches rendered glyphs in a texture atlas — without clearing it,
       // already-drawn text keeps the old font/theme while new text uses the new.
       session.webgl?.clearTextureAtlas();
@@ -206,7 +200,7 @@ export function isLocalUrl(raw: string): boolean {
   }
 }
 
-function buildTerminal(opts?: { scrollback?: number }): Terminal {
+function buildTerminal(): Terminal {
   const settings = getSettings();
   const term = new Terminal({
     allowProposedApi: true,
@@ -216,7 +210,7 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
     fontFamily: fontFamily(settings),
     fontSize: settings.fontSize,
     lineHeight: 1.2,
-    scrollback: opts?.scrollback ?? 10000,
+    scrollback: 10000,
     // Match xterm.css; the pane counts this gutter as part of its right inset.
     overviewRuler: { width: 11 },
     theme: terminalTheme(settings),
@@ -230,14 +224,13 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
   return term;
 }
 
-// Wire PTY data/exit + spawn. Shared by headless and rendered sessions: the PTY
-// side is identical whether or not a renderer is attached.
+// Wire PTY data/exit + spawn.
 function wireAndSpawn(
   session: TermSession,
   spawnOpts: SpawnOptions | undefined,
 ): Promise<void> {
   const { id, term } = session;
-  // A terminal that starts by running something (utility, ssh, agent command)
+  // A terminal that starts by running something (utility, ssh, CLI agent)
   // is "used" from birth — only a bare shell counts as pristine.
   if (spawnOpts?.command || spawnOpts?.program) used.add(id);
   // Explicit spawn options (even with no cwd field) opt out of the ambient
@@ -289,10 +282,8 @@ function wireAndSpawn(
 }
 
 // Attach a renderer (DOM container + interaction handlers) to a session, opening
-// the terminal so its buffer actually fills. `useWebgl` is off for background
-// sessions: they open offscreen only to buffer output, and a fleet of WebGL
-// contexts is exactly what froze the app — the DOM renderer buffers just fine.
-function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true) {
+// the terminal so its buffer actually fills.
+function attachRenderer(session: TermSession, host: HTMLElement) {
   const { id, term } = session;
   const container = document.createElement("div");
   container.className = "term-container";
@@ -314,20 +305,18 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
     (events?.usesSgrMouseInAltScreen?.(id) ?? false),
   ));
   let webgl: WebglAddon | null = null;
-  if (useWebgl) {
-    try {
-      webgl = new WebglAddon();
-      term.loadAddon(webgl);
-      const addon = webgl;
-      addon.onContextLoss(() => {
-        addon.dispose();
-        session.webgl = null;
-        term.refresh(0, term.rows - 1);
-      });
-    } catch {
-      // WebGL unavailable — DOM renderer still works fine.
-      webgl = null;
-    }
+  try {
+    webgl = new WebglAddon();
+    term.loadAddon(webgl);
+    const addon = webgl;
+    addon.onContextLoss(() => {
+      addon.dispose();
+      session.webgl = null;
+      term.refresh(0, term.rows - 1);
+    });
+  } catch {
+    // WebGL unavailable — DOM renderer still works fine.
+    webgl = null;
   }
   fit.fit();
 
@@ -340,8 +329,8 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
     // Paste: Ctrl+V / Ctrl+Shift+V. DON'T preventDefault here — let the
     // browser's native paste event fire on xterm's textarea, and let the
     // synchronous `paste` listener on the container (see below) catch it.
-    // That listener reads e.clipboardData synchronously (zero race), which is
-    // exactly how the chat composer pastes — so external dictation apps
+    // That listener reads e.clipboardData synchronously (zero race), so
+    // external dictation apps
     // (Wispr Flow) that set the clipboard and simulate Ctrl+V work without
     // holding any modifier. Returning false here used to kill the native
     // paste event and force a racy async clipboard read, which is why Wispr
@@ -384,9 +373,8 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
   // Ctrl+V, Ctrl+Shift+V, right-click paste, and external dictation apps like
   // Wispr Flow that set the clipboard + simulate Ctrl+V). e.clipboardData is
   // available synchronously inside the event, so there's zero race — we get
-  // exactly the text being pasted, the instant it's pasted. This mirrors how
-  // the chat composer pastes (onPaste + e.clipboardData), which is why the
-  // chat works and the terminal didn't. Capture + stopImmediatePropagation so
+  // exactly the text being pasted, the instant it's pasted. Capture +
+  // stopImmediatePropagation so
   // xterm's own textarea paste handler never also fires (no double-paste).
   container.addEventListener(
     "paste",
@@ -427,14 +415,12 @@ function attachRenderer(session: TermSession, host: HTMLElement, useWebgl = true
   session.container = container;
   session.fit = fit;
   session.webgl = webgl;
-  session.rendered = true;
 }
 
 export function ensureSession(id: string, host: HTMLElement): TermSession {
   const existing = sessions.get(id);
   if (existing) {
-    // Re-parent the existing (already-open) terminal into this host — including
-    // a background terminal moving from its offscreen host into a visible pane.
+    // Re-parent the existing (already-open) terminal into this host.
     if (existing.container && existing.container.parentElement !== host) {
       host.appendChild(existing.container);
       existing.fit?.fit();
@@ -451,7 +437,6 @@ export function ensureSession(id: string, host: HTMLElement): TermSession {
     fit: null,
     webgl: null,
     container: null,
-    rendered: false,
     lastTitle: "",
     cleanup: [],
   };
@@ -464,55 +449,7 @@ export function ensureSession(id: string, host: HTMLElement): TermSession {
   return session;
 }
 
-// A PTY+xterm session for agent background terminals (dev servers, watchers).
-// It's opened into an OFFSCREEN host so its buffer actually fills — that's what
-// read_terminal / wait_for_terminal read — but with NO WebGL: a fleet of WebGL
-// contexts is what froze the app ("not responding"), while the DOM renderer
-// buffers fine. Opening it in a pane later just re-parents the same container.
-export async function ensureBackgroundSession(id: string): Promise<TermSession> {
-  const existing = sessions.get(id);
-  if (existing) return existing;
-
-  const spawnOpts = pendingSpawn.get(id);
-  pendingSpawn.delete(id);
-  // Small scrollback: read_terminal only ever reads the last ~300 lines, so a
-  // fleet of chatty background servers needn't each hold 10k lines of history.
-  const term = buildTerminal({ scrollback: 1000 });
-  const session: TermSession = {
-    id,
-    term,
-    fit: null,
-    webgl: null,
-    container: null,
-    rendered: false,
-    lastTitle: "",
-    cleanup: [],
-  };
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-10000px;top:0;width:900px;height:500px;overflow:hidden;";
-  document.body.appendChild(host);
-  session.cleanup.push(() => host.remove());
-  attachRenderer(session, host, false);
-  // Register before spawning so output that arrives immediately isn't dropped.
-  sessions.set(id, session);
-  // Unlike a user-visible terminal, a background tool must not claim success
-  // before its PTY exists: surface the actual startup error to the agent.
-  try {
-    await wireAndSpawn(session, spawnOpts);
-    return session;
-  } catch (error) {
-    disposeSession(id);
-    throw error;
-  }
-}
-
-/** Scroll a session's viewport to the bottom (safe before a renderer exists). */
-export function scrollSessionToBottom(id: string) {
-  const s = sessions.get(id);
-  if (s?.rendered) s.term.scrollToBottom();
-}
-
-/** All live session ids (rendered or headless). Used by the agent-detection
+/** All live session ids. Used by the agent-detection
  *  poller to know which terminals to ask the backend about. */
 export function sessionIds(): string[] {
   return [...sessions.keys()];

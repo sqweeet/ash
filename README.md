@@ -1,6 +1,6 @@
 # Ash
 
-> A terminal and AI workspace for Windows. Your shell, your models, one quiet desktop.
+> A quiet terminal for Windows, built for CLI coding agents. Your shell, your agents, one desktop.
 
 [![version](https://img.shields.io/github/v/release/sqweeet/ash?style=flat-square&color=666666)](https://github.com/sqweeet/ash/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/sqweeet/ash/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/sqweeet/ash/actions/workflows/ci.yml)
@@ -20,18 +20,15 @@ Prefer a standalone executable? Download `Ash.exe` from the same release. This i
 
 ## Features
 
-- **Terminal + AI in one window.** Run a real shell beside a built-in agent. Connect an OpenAI-compatible endpoint and your own API key.
+- **Made for CLI agents.** Claude Code, Codex, Pi, and OpenCode are detected in any terminal: the sidebar shows the agent's mark, its working folder and git worktree, and the tab title shines while the agent works.
 - **A quiet interface.** Gray surfaces, muted accents, and Windows 11 caption icons. Other dark and light themes remain available; application truecolor is not desaturated.
 - **Reliable fullscreen TUIs.** Native mouse scrolling, ordered terminal input/output, and working terminal palette queries. The wheel does not inject arrow or PageUp/PageDown keys.
-- **Workspaces and split panes.** Bind a folder to a workspace, arrange terminal and agent panes, and keep terminal sessions alive when moving panes.
+- **Workspaces and split panes.** Bind a folder to a workspace, arrange terminal, browser, and file panes, and keep terminal sessions alive when moving panes.
 - **Home-directory shell startup.** New terminals open in your home or selected workspace, not the install directory.
 - **Direct clipboard paste.** Ctrl+V, Ctrl+Shift+V, and right-click paste without duplicate input.
 - **In-app updates.** An Update button links a new release to its download and restart flow. Protected install locations can require a UAC prompt. See [self-update details](docs/updater.md).
 
 Microsoft's modern ConPTY runtime is embedded in `Ash.exe` and cached under `%LOCALAPPDATA%\Ash\ConPTY` on first use. It needs no startup download, administrator rights, or separate Windows Terminal installation. See [runtime details and license](internal/conpty/README.md).
-
-> **Agent safety:** tools run with your Windows account's permissions. Safe mode is a project-copy and review workflow, not an OS sandbox. Review commands and proposed merges before approving them.
-
 ## Build from source
 
 Install [Go 1.25+](https://go.dev/dl/), [Node.js 22.12+](https://nodejs.org/), and [Wails CLI v2](https://wails.io/docs/gettingstarted/installation). Install NSIS as well to build Setup.
