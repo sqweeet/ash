@@ -320,6 +320,13 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* a tab is being dragged over this tab: releasing splits the two together,
+   tinted like the pane split preview */
+.tab.drop-target,
+.tab.drop-target:hover {
+  background: color-mix(in srgb, var(--accent, #6ea8fe) 24%, transparent);
+}
+
 .side-row.active {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -523,6 +530,41 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+/* MarqueeText: a title that doesn't fit fades out on the right instead of
+   ending in "…"; while its row is hovered it scrolls (MarqueeText.tsx animates
+   the track and --fade-l, the left fade, which shows only while moving). */
+@property --fade-l {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.marquee {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.marquee.overflowing {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-l, 0px),
+    #000 calc(100% - 18px),
+    transparent
+  );
+}
+
+.marquee-track {
+  display: inline-flex;
+  gap: 36px;
+}
+
+.marquee-track > span {
+  flex-shrink: 0;
 }
 
 /* Title (or rename field) stacked over the optional subtitle line. */
@@ -741,6 +783,61 @@
   text-overflow: ellipsis;
 }
 
+/* Drag-to-reorder: an accent line on a row's top or bottom edge marks where
+   the dragged tab will land. Both lines sit on every tab block at alpha 0, so
+   moving between slots cross-fades instead of popping; the line opens from
+   its center. Inset to the icon column, like the row content. */
+.tab-item {
+  position: relative;
+  transition: opacity 0.15s ease;
+}
+
+.tab-item::before,
+.tab-item::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent, #6ea8fe);
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleX(0.9);
+  transition:
+    opacity 0.14s ease,
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tab-item::before {
+  top: 0;
+}
+
+/* a block is its row plus any sub-rows (a chat's terminals): "after" lands
+   below all of them */
+.tab-item::after {
+  bottom: 0;
+}
+
+/* workspace tabs are indented — their line starts at their icon too */
+.tab-item:has(> .tab.nested)::before,
+.tab-item:has(> .tab.nested)::after {
+  left: 24px;
+}
+
+.tab-item.drop-before::before,
+.tab-item.drop-after::after {
+  opacity: 1;
+  transform: none;
+}
+
+/* the tab being dragged stays in its spot, faded, while the ghost follows
+   the pointer */
+.tab-item.dragging {
+  opacity: 0.4;
+}
+
 /* agent tab icon: center dots pulse gently while the agent works */
 .chat-dot {
   animation: chatDotPulse 1.4s ease-in-out infinite;
@@ -797,4 +894,36 @@
 
 .quick-icon {
   color: var(--icon);
+}
+
+/* A CLI agent is mid-turn: a soft shine runs through its tab title, then
+   rests a beat before the next pass. The title itself is left alone (painting
+   it through background-clip: text drops ClearType and reads as dimmer); a
+   white copy of the text (data-text, set by MarqueeText) sits on top, shown
+   only through a moving mask band. Sized per text span, so the light crosses
+   the words rather than the empty row after them. */
+.tab.working .tab-title .marquee-track > span {
+  position: relative;
+}
+
+.tab.working .tab-title .marquee-track > span::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(100deg, transparent 38%, #000 50%, transparent 62%)
+    100% 0 / 300% 100% no-repeat;
+  mask: linear-gradient(100deg, transparent 38%, #000 50%, transparent 62%)
+    100% 0 / 300% 100% no-repeat;
+  animation: title-shine 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes title-shine {
+  0% { -webkit-mask-position: 100% 0; mask-position: 100% 0; }
+  65%, 100% { -webkit-mask-position: 0% 0; mask-position: 0% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab.working .tab-title .marquee-track > span::after { animation-duration: 5.2s; }
 }

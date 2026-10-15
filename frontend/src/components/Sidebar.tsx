@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "../backend/core";
 import { homeDir } from "../backend/path";
 
@@ -16,6 +16,7 @@ import {
 } from "../lib/background-terms";
 import { BgAgent, getBgAgents, onBgAgentsChange, stopOrRemoveBgAgent } from "../lib/bg-agents";
 import MeshAvatar from "./MeshAvatar";
+import MarqueeText from "./MarqueeText";
 
 interface SidebarProps {
   tabs: Tab[];
@@ -29,6 +30,7 @@ interface SidebarProps {
   onRemoveWorkspace: (id: string) => void;
   onNewTabInWorkspace: (id: string) => void;
   onMoveTabToWorkspace: (tabId: string, wsId: string) => void;
+  onReorderTab: (tabId: string, targetId: string, after: boolean) => void;
   onSplitMergeTab: (
     srcTabId: string,
     targetPaneId: string,
@@ -93,6 +95,12 @@ function tabCliAgent(tab: Tab): AgentMatch | null {
   return null;
 }
 
+// A CLI agent in one of the tab's terminals is mid-turn (parsed from its OSC
+// title spinner) — the tab's title shines while it is.
+function tabCliWorking(tab: Tab): boolean {
+  return leaves(tab.root).some((l) => l.kind === "term" && getAgentStatus(l.id) === "working");
+}
+
 // Pick the tab-row icon by what the tab holds. A chat pane is the star of a
 // tab — when one is present (even in a "chat left, terminal right" split) show
 // its icon, with live working/done state, instead of the terminal fallback.
@@ -129,6 +137,7 @@ export default function Sidebar({
   onRemoveWorkspace,
   onNewTabInWorkspace,
   onMoveTabToWorkspace,
+  onReorderTab,
   onSplitMergeTab,
   onOpenBackgroundTerm,
   onKillBackgroundTerm,
@@ -221,6 +230,10 @@ export default function Sidebar({
     y: number;
   } | null>(null);
   const [dropWs, setDropWs] = useState<string | null>(null);
+  // Tab row a dragged tab would merge into on release.
+  const [dropTab, setDropTab] = useState<string | null>(null);
+  // Reorder slot a dragged tab would land in: right before/after this row.
+  const [dropSlot, setDropSlot] = useState<{ id: string; after: boolean } | null>(null);
   // Drop target for drag-a-tab-onto-a-pane (split merge). dir + placeBefore
   // describe which side the new pane lands on; the matching pane element gets
   // a `split-drop-*` class to preview where the split will open.
@@ -399,15 +412,60 @@ export default function Sidebar({
     }
   }, [dropPane]);
 
+  // FLIP for drag-reorder: right before the move every tab block (its row plus
+  // the sub-rows under it) remembers where it sat; after the re-render each one
+  // glides from there into its new place instead of jumping.
+  const flipFrom = useRef<Map<string, number> | null>(null);
+  const tabBlocks = () =>
+    [...(scrollRef.current?.querySelectorAll<HTMLElement>("[data-tab-id]") ?? [])].map(
+      (row) => [row.dataset.tabId!, row.parentElement!] as const,
+    );
+  useLayoutEffect(() => {
+    const from = flipFrom.current;
+    if (!from) return;
+    flipFrom.current = null;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    for (const [id, block] of tabBlocks()) {
+      const top = from.get(id);
+      if (top === undefined) continue;
+      const dy = top - block.getBoundingClientRect().top;
+      if (Math.abs(dy) < 1) continue;
+      block.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], {
+        duration: 240,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+      });
+    }
+  }, [tabs]);
+
   // Pointer-based drag (HTML5 DnD is unreliable in the WebView) — drag a tab
-  // onto the Pinned zone to pin it, onto a workspace row to move it there, or
-  // onto another tab's pane to merge the two into a split (neither terminal
-  // resets; the PTY session survives the re-parent).
+  // onto the Pinned zone to pin it, onto a workspace row to move it there, onto
+  // another tab's row edge to reorder, or onto another tab's pane or row middle
+  // to merge the two into a split (neither terminal resets; the PTY session
+  // survives the re-parent).
   const startTabDrag = (e: React.MouseEvent, tab: Tab) => {
     if (e.button !== 0 || editingId === tab.id) return;
     const startX = e.clientX;
     const startY = e.clientY;
     let started = false;
+    // Another tab's sidebar row under the pointer. Its top and bottom edge
+    // bands reorder (the dragged tab lands before/after it); the middle merges
+    // the two — the row is the only way to reach a tab that isn't on screen,
+    // since the dragged tab is usually the active one and its own pane is the
+    // only pane visible. An edge right beside the dragged row would move
+    // nothing, so it's a dead zone.
+    const rowDropAt = (el: Element | null, y: number) => {
+      const row = el?.closest<HTMLElement>("[data-tab-id]");
+      const id = row?.dataset.tabId;
+      if (!row || !id || id === tab.id) return null;
+      const r = row.getBoundingClientRect();
+      const rel = (y - r.top) / r.height;
+      if (rel > 0.3 && rel < 0.7) return { id, merge: true, after: false };
+      const after = rel >= 0.7;
+      const block = row.parentElement;
+      const beside = after ? block?.nextElementSibling : block?.previousElementSibling;
+      if (beside?.firstElementChild?.getAttribute("data-tab-id") === tab.id) return null;
+      return { id, merge: false, after };
+    };
     // rAF-throttled — raw mousemove fires setTabDrag + elementFromPoint 100+/s
     // and (Sidebar not yet memoized) each triggers a full list re-render. Same
     // pattern as PaneLayout's divider drag.
@@ -420,6 +478,9 @@ export default function Sidebar({
       const el = document.elementFromPoint(lastX, lastY);
       const wsRow = el?.closest<HTMLElement>("[data-ws-id]");
       setDropWs(wsRow?.dataset.wsId ?? null);
+      const hit = rowDropAt(el, lastY);
+      setDropTab(hit?.merge ? hit.id : null);
+      setDropSlot(hit && !hit.merge ? { id: hit.id, after: hit.after } : null);
       // Pane drop → split merge. Detect which half of the pane the cursor is in
       // so the new terminal opens on the side the user pointed at.
       const pane = el?.closest<HTMLElement>("[data-pane-id]");
@@ -464,8 +525,23 @@ export default function Sidebar({
           const placeBefore = dir === "row" ? relX < 0 : relY < 0;
           onSplitMergeTab(tab.id, pane.dataset.paneId, dir, placeBefore);
         } else {
+          const hit = rowDropAt(el, ev.clientY);
+          const target = hit?.merge ? tabs.find((t) => t.id === hit.id) : undefined;
           const wsId = el?.closest<HTMLElement>("[data-ws-id]")?.dataset.wsId;
-          if (wsId) {
+          if (hit && !hit.merge) {
+            flipFrom.current = new Map(
+              tabBlocks().map(([id, block]) => [id, block.getBoundingClientRect().top]),
+            );
+            onReorderTab(tab.id, hit.id, hit.after);
+            // a drop that changed nothing never re-renders the list — don't
+            // let its snapshot animate some later, unrelated tabs change
+            requestAnimationFrame(() => (flipFrom.current = null));
+          } else if (target) {
+            // Row drop: the dragged tab opens to the right of the target's
+            // focused pane, and the merged tab comes on screen.
+            onSplitMergeTab(tab.id, target.activePane, "row", false);
+            onSelect(target.id);
+          } else if (wsId) {
             onMoveTabToWorkspace(tab.id, wsId);
             setCollapsedWs((prev) => {
               if (!prev.has(wsId)) return prev;
@@ -485,6 +561,8 @@ export default function Sidebar({
       }
       setTabDrag(null);
       setDropWs(null);
+      setDropTab(null);
+      setDropSlot(null);
       setDropPane(null);
       setDragPin(false);
     };
@@ -504,7 +582,7 @@ export default function Sidebar({
         <span className="tab-icon">
           <SessionTermIcon />
         </span>
-        <span className="tab-title">{s.title}</span>
+        <MarqueeText className="tab-title" text={s.title} />
         <button
           className="tab-close"
           onClick={(e) => {
@@ -540,7 +618,7 @@ export default function Sidebar({
               muted={a.status === "waiting"}
             />
           </span>
-          <span className="tab-title">{a.name}</span>
+          <MarqueeText className="tab-title" text={a.name} />
           {/* the category header already names the role when grouped */}
           {!grouped && a.role.id !== "general" && (
             <span className="bga-role">{a.role.label}</span>
@@ -635,9 +713,13 @@ export default function Sidebar({
         ? bgAgents.filter((a) => a.ownerId === ls[0].id)
         : [];
     return (
-      <div key={tab.id}>
+      <div
+        key={tab.id}
+        className={`tab-item${dropSlot?.id === tab.id ? (dropSlot.after ? " drop-after" : " drop-before") : ""}${tabDrag?.id === tab.id ? " dragging" : ""}`}
+      >
         <div
-          className={`tab${tab.id === activeId ? " active" : ""}${nested ? " nested" : ""}${subtitle ? " two-line" : ""}`}
+          className={`tab${tab.id === activeId ? " active" : ""}${nested ? " nested" : ""}${subtitle ? " two-line" : ""}${dropTab === tab.id ? " drop-target" : ""}${cli && tabCliWorking(tab) ? " working" : ""}`}
+          data-tab-id={tab.id}
           title={cliCwd || undefined}
           onClick={() => onSelect(tab.id)}
           onDoubleClick={() => startRename(tab)}
@@ -668,7 +750,7 @@ export default function Sidebar({
                 }}
               />
             ) : (
-              <span className="tab-title">{tab.title}</span>
+              <MarqueeText className="tab-title" text={tab.title} />
             )}
             {subtitle && (
               <span className="tab-sub">

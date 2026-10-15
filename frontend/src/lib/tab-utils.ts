@@ -19,6 +19,23 @@ export function makeTab(
   };
 }
 
+/** The list with tab `id` moved to sit right before `targetId` (or right
+ *  after it). The same array comes back when nothing would move. */
+export function moveTabNextTo<T extends { id: string }>(
+  list: T[],
+  id: string,
+  targetId: string,
+  after: boolean,
+): T[] {
+  const item = list.find((t) => t.id === id);
+  if (!item || id === targetId) return list;
+  const next = list.filter((t) => t !== item);
+  const at = next.findIndex((t) => t.id === targetId);
+  if (at < 0) return list;
+  next.splice(after ? at + 1 : at, 0, item);
+  return next.every((t, i) => t === list[i]) ? list : next;
+}
+
 export function paneRect(id: string): DOMRect | null {
   const el = document.querySelector(`[data-pane-id="${id}"]`);
   return el ? el.getBoundingClientRect() : null;

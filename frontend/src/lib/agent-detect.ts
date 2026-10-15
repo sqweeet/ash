@@ -10,7 +10,8 @@
 // title (agy has no stable title pattern; title can be disabled on all three).
 // The title-change hook is an ADDITIONAL early trigger, not the sole signal.
 import { invoke } from "../backend/core";
-import { sessionIds } from "./term";
+import { sessionIds, getSession } from "./term";
+import { setAgentStatus } from "./agent-status";
 
 export interface AgentMatch {
   /** Stable id from AGENT_PROCESSES (claude / antigravity / opencode). */
@@ -88,18 +89,14 @@ async function detectOne(id: string): Promise<void> {
     worktree = res?.worktree ?? null;
   } catch {
     // PTY gone or binding unavailable — clear any stale match.
-    if (matches.has(id)) {
-      matches.delete(id);
-      notify();
-    }
+    clearAgent(id);
     return;
   }
   const hit = matchName(name);
   const prev = matches.get(id);
   if (!hit && !prev) return; // still no agent
   if (!hit) {
-    matches.delete(id);
-    notify();
+    clearAgent(id);
     return;
   }
   // Same agent but a one-off failed cwd read: keep the folder it had.
@@ -109,6 +106,7 @@ async function detectOne(id: string): Promise<void> {
   }
   if (prev?.id === hit.id && prev.cwd === cwd && sameWorktree(prev.worktree, worktree)) return; // unchanged
   matches.set(id, { id: hit.id, cwd, worktree });
+  syncAgentStatus(id, getSession(id)?.lastTitle ?? "");
   notify();
 }
 
@@ -153,7 +151,18 @@ export function triggerDetect(id: string): void {
 
 /** Clear a terminal's match immediately (used on PTY exit / dispose). */
 export function clearAgent(id: string): void {
+  setAgentStatus(id, null);
   if (matches.delete(id)) notify();
+}
+
+/** Mirror a detected CLI agent's working/done state (parsed from its OSC
+ *  title) into the shared status store the sidebar spinner reads. A title with
+ *  no status marker leaves the last known state alone. */
+export function syncAgentStatus(id: string, rawTitle: string): void {
+  const ag = matches.get(id);
+  if (!ag) return;
+  const st = parseAgentStatus(ag.id, rawTitle);
+  if (st) setAgentStatus(id, st);
 }
 
 export function getAgentForTerm(id: string): AgentMatch | null {
@@ -170,14 +179,18 @@ export function agentDisplayName(id: string): string {
   return AGENT_BY_ID.get(id)?.label ?? "";
 }
 
-// Claude Code's OSC title is a braille spinner (U+2800–U+28FF) or asterisk
-// marker (U+2733) + an auto-generated conversation topic, sometimes in a
-// "repo · topic · session-id" triple. We strip the spinner and extract the
-// topic to show "Claude Code · {topic}" — the clean, short title the user sees
-// instead of the raw messy OSC payload. Topic capped so the tab stays short.
+// Claude Code's OSC title is "<glyph> <topic>": a half-circle spinner (◐/◑,
+// U+25D0–U+25D3; braille U+2800–U+28FF in older releases) while it works, or
+// the asterisk marker (U+2733) when idle. Older releases sent a
+// "repo · topic · session-id" triple. We strip the glyph and extract the
+// topic as the clean, short title the user sees instead of the raw messy OSC
+// payload. Topic capped so the tab stays short.
+const CLAUDE_SPINNER = /^[\u25d0-\u25d3\u2800-\u28ff]/;
+const CLAUDE_GLYPHS = /^[\u25d0-\u25d3\u2800-\u28ff\u2733-\u2735\u2727]+\s*/;
+
 function extractClaudeTopic(raw: string): string {
   // Drop leading spinner/marker glyphs + whitespace.
-  let s = raw.replace(/^[\u2800-\u28ff\u2733-\u2735\u2727]+\s*/, "").trim();
+  let s = raw.replace(CLAUDE_GLYPHS, "").trim();
   if (!s) return "";
   // "repo · topic · session-id" → the topic is the middle segment. A lone
   // segment is either a topic or the literal "Claude Code" (startup).
@@ -219,12 +232,13 @@ export function agentTitleParts(
   return { name, desc };
 }
 
-/** Build a clean, short tab title for a detected agent from its raw OSC title.
- *  Falls back to the agent's plain display name when no topic can be parsed
- *  (agy has no stable title format; Claude at startup; title disabled). Pi
- *  shows the folder it's working in ("Pi - ash-wails") when `folderName` is
- *  supplied — Pi's own OSC title is just the cwd path, so the workspace
- *  folder is the useful identity. */
+/** Build a clean, short tab title for a detected agent from its raw OSC title:
+ *  just the topic ("fix sidebar rows") — the sidebar icon already names the
+ *  agent, so no brand prefix. Falls back to the agent's plain display name
+ *  when no topic can be parsed (agy has no stable title format; Claude at
+ *  startup; title disabled). Pi's "topic" is the folder it's working in when
+ *  `folderName` is supplied — Pi's own OSC title is just the cwd path, so the
+ *  workspace folder is the useful identity. */
 export function agentTabTitle(
   agentId: string,
   rawTitle: string,
@@ -232,20 +246,16 @@ export function agentTabTitle(
 ): string {
   const base = agentDisplayName(agentId);
   if (!base) return rawTitle;
-  if (agentId === "pi") {
-    // Pi's OSC title is the cwd path — the folder name (passed in by the
-    // caller from the tab's workspace) is the clean identity.
-    return folderName ? `${base} - ${folderName}` : base;
-  }
   let topic = "";
-  if (agentId === "claude") topic = extractClaudeTopic(rawTitle);
+  if (agentId === "pi") topic = folderName ?? "";
+  else if (agentId === "claude") topic = extractClaudeTopic(rawTitle);
   else if (agentId === "opencode") topic = extractOpenCodeTopic(rawTitle);
   // antigravity: no stable title pattern — just the brand name.
-  return topic ? `${base} · ${topic}` : base;
+  return topic || base;
 }
 
 /** Combined title for a split holding multiple detected agents — joins each
- *  agent's own title with " · " ("Claude Code · Pi - ash-wails"). Falls back to
+ *  agent's own title with " · " ("fix sidebar rows · ash-wails"). Falls back to
  *  a single agent's title when there's just one. `folderFor` lets the caller
  *  supply a per-agent working folder (used by Pi) without threading it through
  *  every entry. */
@@ -257,7 +267,7 @@ export function agentCombinedTitle(
   if (entries.length === 1)
     return agentTabTitle(entries[0].id, entries[0].rawTitle, folderFor?.(entries[0].id));
   // For 2+ agents show each agent's own short title joined — Pi gets its
-  // folder, the rest get their brand/topic. Joined identities read at a glance.
+  // folder, the rest their topic (or brand). Joined identities read at a glance.
   return entries
     .map((e) => agentTabTitle(e.id, e.rawTitle, folderFor?.(e.id)))
     .filter(Boolean)
@@ -268,8 +278,8 @@ export function agentCombinedTitle(
 // Each CLI surfaces its state in the OSC title (and Pi also via OSC 9;4
 // progress sequences, sniffed in term.ts). We parse the title into a status so
 // the sidebar can show a working spinner vs a done check on the agent's tab.
-//   Claude Code: braille spinner (U+2800–U+28FF) = working, asterisk
-//     marker (U+2733) = turn ended.
+//   Claude Code: ◐/◑ half-circle spinner (braille in older releases) =
+//     working, asterisk marker (U+2733) = turn ended.
 //   OpenCode: spinner prefix (braille) = busy, `▣` = idle (built-in, PR #29597).
 //   Pi (with a status extension): `◰◳◲◱`/braille spinner = working,
 //     `✓` or `●` = idle. Pi's built-in OSC 9;4 path is handled separately.
@@ -286,8 +296,8 @@ export function parseAgentStatus(agentId: string, rawTitle: string): AgentRunSta
   const t = rawTitle ?? "";
   if (!t) return null;
   if (agentId === "claude") {
-    // Working while a braille spinner leads; done when the asterisk marker leads.
-    if (/^[\u2800-\u28ff]/.test(t)) return "working";
+    // Working while a spinner frame leads; done when the asterisk marker leads.
+    if (CLAUDE_SPINNER.test(t)) return "working";
     if (/^[\u2733-\u2735\u2727]/.test(t)) return "done";
     return null;
   }

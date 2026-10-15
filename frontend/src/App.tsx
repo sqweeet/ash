@@ -38,7 +38,7 @@ import {
   isSessionUsed,
   setSpawnOptions,
 } from "./lib/term";
-import { startAgentDetection, stopAgentDetection, triggerDetect, clearAgent, getAgentForTerm, onAgentDetectChange, agentTabTitle, agentCombinedTitle } from "./lib/agent-detect";
+import { startAgentDetection, stopAgentDetection, triggerDetect, clearAgent, syncAgentStatus, getAgentForTerm, onAgentDetectChange, agentTabTitle, agentCombinedTitle } from "./lib/agent-detect";
 import { getSettings, onSettingsChange, updateSettings } from "./lib/settings";
 import {
   Leaf,
@@ -69,7 +69,7 @@ import {
   PINNED_KEY,
 } from "./lib/persistence";
 import type { WorkspaceState } from "./lib/persistence";
-import { makeTab, paneRect, basename, prettyTitle } from "./lib/tab-utils";
+import { makeTab, moveTabNextTo, paneRect, basename, prettyTitle } from "./lib/tab-utils";
 import { getSession } from "./lib/term";
 
 initPtyEvents();
@@ -727,6 +727,19 @@ export default function App() {
     );
   }, []);
 
+  // Sidebar drag-to-reorder: the tab lands right before/after another tab's
+  // row. A row in another workspace's list (or the loose list) moves it there
+  // too, the same as dropping it on that workspace.
+  const reorderTab = useCallback(
+    (tabId: string, targetId: string, after: boolean) => {
+      const target = tabsRef.current.find((t) => t.id === targetId);
+      if (!target) return;
+      moveTabToWorkspace(tabId, target.workspaceId);
+      setTabs((ts) => moveTabNextTo(ts, tabId, targetId, after));
+    },
+    [moveTabToWorkspace],
+  );
+
   // Welcome screen's "Open folder" — adds the workspace and drops straight
   // into a terminal there, instead of the two-step add-then-"+" flow.
   const startInFolder = useCallback(async () => {
@@ -1087,6 +1100,11 @@ export default function App() {
         );
         return merged.filter((t) => t.id !== srcTabId);
       });
+      // The tab now holds both sides' agents: retitle it ("Claude Code · Pi")
+      // right away instead of waiting for an OSC title an idle agent may never
+      // send — until then it kept the drop target's name under the moved
+      // agent's icon.
+      retitleTabByAgents({ ...dst, root: newRoot, activePane: focusId });
       // If the dragged tab was active, follow the work into its new home.
       if (activeTabIdRef.current === srcTabId) setActiveTabId(dst.id);
     },
@@ -1326,15 +1344,16 @@ export default function App() {
   }, [isDevChannel]);
 
   // Retitle a tab based on the CLI agents detected across its terminal leaves.
-  // One agent → "Claude Code · {topic}" (parsed from its OSC title). Two+ →
-  // "Claude Code · OpenCode" (brand names joined, topics get noisy when
-  // stacked). No agent → falls back to the active pane's pretty shell title so
-  // a bare terminal keeps its shell name. Pinned titles are never touched.
+  // One agent → its topic parsed from the OSC title (the sidebar icon names
+  // the agent), or the agent's name until it has one. Two+ → each agent's
+  // title joined with " · ". No agent → falls back to the active pane's pretty
+  // shell title so a bare terminal keeps its shell name. Pinned titles are
+  // never touched.
   const retitleTabByAgents = useCallback((tab: Tab) => {
     if (tab.titlePinned) return;
     const termLeaves = leaves(tab.root).filter((l) => l.kind === "term");
-    // Resolve the working folder name for this tab — Pi's title shows it
-    // ("Pi - ash-wails") since Pi's own OSC title is just the cwd path. The
+    // Resolve the working folder name for this tab — Pi's title is it
+    // ("ash-wails") since Pi's own OSC title is just the cwd path. The
     // workspace folder is the cleanest identity; fall back to the pane's cwd.
     const ws = tab.workspaceId
       ? workspacesRef.current.list.find((w) => w.id === tab.workspaceId)
@@ -1375,6 +1394,7 @@ export default function App() {
         // An OSC title change is a strong early hint a CLI agent just became
         // foreground — re-check its process before the next poll interval.
         triggerDetect(paneId);
+        syncAgentStatus(paneId, title);
         const tab = tabsRef.current.find((t) =>
           leafIds(t.root).includes(paneId),
         );
@@ -1614,6 +1634,7 @@ export default function App() {
           onRemoveWorkspace={removeWorkspace}
           onNewTabInWorkspace={addTabInWorkspace}
           onMoveTabToWorkspace={moveTabToWorkspace}
+          onReorderTab={reorderTab}
           onSplitMergeTab={splitMergeTab}
           onOpenBackgroundTerm={openBackgroundTerm}
           onOpenBgAgent={openBgAgentViewer}
