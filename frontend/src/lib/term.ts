@@ -1,6 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "../backend/opener";
 import { readText, writeText } from "../backend/clipboard";
@@ -207,7 +208,7 @@ export function isLocalUrl(raw: string): boolean {
 
 function buildTerminal(opts?: { scrollback?: number }): Terminal {
   const settings = getSettings();
-  return new Terminal({
+  const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: false,
     cursorStyle: "bar",
@@ -220,6 +221,13 @@ function buildTerminal(opts?: { scrollback?: number }): Terminal {
     overviewRuler: { width: 11 },
     theme: terminalTheme(settings),
   });
+  // Unicode 11 widths: emoji like "✅" and "🚀" take two cells, as they do
+  // for the TUI and ConPTY. xterm's default (Unicode 6) gave them one,
+  // shifting the rest of the line a column left — a table's right border
+  // zigzagged on every row that held one.
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = "11";
+  return term;
 }
 
 // Wire PTY data/exit + spawn. Shared by headless and rendered sessions: the PTY
