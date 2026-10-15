@@ -20,7 +20,7 @@ Prefer a standalone executable? Download `Ash.exe` from the same release. This i
 
 ## Features
 
-- **Made for CLI agents.** Claude Code, Codex, Pi, and OpenCode are detected in any terminal: the sidebar shows the agent's mark, its working folder and git worktree, and the tab title shines while the agent works.
+- **Made for CLI agents.** Claude Code, Codex, Pi, omp, OpenCode, and Muse Code are detected in any terminal: the sidebar shows the agent's mark, its working folder and git worktree, and the tab title shines while the agent works.
 - **A quiet interface.** Gray surfaces, muted accents, and Windows 11 caption icons. Other dark and light themes remain available; application truecolor is not desaturated.
 - **Reliable fullscreen TUIs.** Native mouse scrolling, ordered terminal input/output, and working terminal palette queries. The wheel does not inject arrow or PageUp/PageDown keys.
 - **Workspaces and split panes.** Bind a folder to a workspace, arrange terminal, browser, and file panes, and keep terminal sessions alive when moving panes.

@@ -58,7 +58,7 @@ import {
   FolderIcon, FolderOpenIcon, BranchIcon, ServerIcon, TerminalIcon, FileTabIcon,
   WebTabIcon, PinIcon, BotIcon, CommandIcon, PlusIcon,
   BroomIcon, CloseSquareIcon, GearIcon, NewTabIcon,
-  SearchIcon, ClaudeLogoIcon, CodexLogoIcon, PiLogoIcon, OpenCodeLogoIcon,
+  SearchIcon, ClaudeLogoIcon, CodexLogoIcon, PiLogoIcon, OpenCodeLogoIcon, MuseLogoIcon, OmpLogoIcon,
   RenameIcon,
 } from "./sidebar/icons";
 
@@ -69,6 +69,8 @@ const CLI_AGENT_ICONS: Record<string, () => React.JSX.Element> = {
   codex: CodexLogoIcon,
   pi: PiLogoIcon,
   opencode: OpenCodeLogoIcon,
+  muse: MuseLogoIcon,
+  omp: OmpLogoIcon,
 };
 
 // The CLI agent a tab is running: the active pane's when it has one, else the

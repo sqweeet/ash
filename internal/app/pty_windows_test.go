@@ -37,12 +37,20 @@ func TestPtyReportsActualWindowsBuild(t *testing.T) {
 func TestPtyEnvironmentOverridesLauncherTerminal(t *testing.T) {
 	inherited := []string{"Path=C:\\tools", "TERM=dumb", "term=vt100", "Colorterm=old", "KEEP=value=with=equals", "=C:=C:\\work"}
 	got := ptyEnvironment(inherited)
-	want := []string{"Path=C:\\tools", "KEEP=value=with=equals", "=C:=C:\\work", "TERM=xterm-256color", "COLORTERM=truecolor"}
+	want := []string{"Path=C:\\tools", "KEEP=value=with=equals", "=C:=C:\\work", "TERM=xterm-256color", "COLORTERM=truecolor", "PI_PROGRAM_STATUS=1"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("unexpected child environment: %q", got)
 	}
 	if inherited[1] != "TERM=dumb" || inherited[2] != "term=vt100" {
 		t.Fatal("must not mutate the launcher's environment")
+	}
+}
+
+func TestPtyEnvironmentKeepsUsersPiProgramStatus(t *testing.T) {
+	got := ptyEnvironment([]string{"Path=C:\\tools", "pi_program_status=0"})
+	want := []string{"Path=C:\\tools", "pi_program_status=0", "TERM=xterm-256color", "COLORTERM=truecolor"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("overrode the user's PI_PROGRAM_STATUS: %q", got)
 	}
 }
 

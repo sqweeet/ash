@@ -1,8 +1,9 @@
-// Detect which CLI coding agent (Claude Code, Antigravity, OpenCode) is
+// Detect which CLI coding agent (Claude Code, Antigravity, OpenCode, …) is
 // running inside each terminal. The Go side walks the ConPTY's process tree
 // to its deepest descendant (PtyForegroundProcess) — the foreground program —
 // and we match its image name against the native binaries each agent ships as:
-//   claude.exe (Anthropic), agy.exe (Google Antigravity), opencode.exe (sst).
+//   claude.exe (Anthropic), agy.exe (Google Antigravity), opencode.exe (sst),
+//   muse-bin-<version>.exe (Meta's Muse Code).
 // node.exe children are MCP servers / npx shims, never the agent leaf, so the
 // tree walk correctly skips them. A bare shell prompt matches nothing.
 //
@@ -48,6 +49,10 @@ const AGENT_PROCESSES: AgentProcess[] = [
   { bin: "agy.exe", id: "antigravity", label: "Antigravity" },
   { bin: "opencode.exe", id: "opencode", label: "OpenCode" },
   { bin: "pi.exe", id: "pi", label: "Pi" },
+  { bin: "omp.exe", id: "omp", label: "omp" },
+  // Windows installs a muse.cmd launcher that runs the versioned native
+  // binary (muse-bin-1.4.8-R6256.1.exe) through PowerShell.
+  { bin: "muse.exe", alt: /^muse-bin-[\w.-]+\.exe$/, id: "muse", label: "Muse Code" },
   // npm's node shim launches the native binary: vendor/<triple>/codex/codex.exe,
   // or codex-x86_64-pc-windows-msvc.exe in older releases.
   { bin: "codex.exe", alt: /^codex-[\w-]+\.exe$/, id: "codex", label: "Codex" },
@@ -56,6 +61,19 @@ const AGENT_PROCESSES: AgentProcess[] = [
 const AGENT_BY_ID = new Map(AGENT_PROCESSES.map((p) => [p.id, p]));
 
 const matches = new Map<string, AgentMatch>();
+// Run state each terminal last reported out of band (OSC 7501 / 9;4) — kept
+// before its agent is detected too, so a run that starts right at launch
+// (its report beating the process poll) still shows.
+const reported = new Map<string, AgentRunStatus>();
+// Terminals whose agent has announced its run state itself — a title marker
+// or status report since it was detected. From then on its output activity is
+// ignored; until then it decides (reportAgentActivity), so an agent with its
+// title turned off still shows its runs.
+const announced = new Set<string>();
+// Codex and Muse mark a run only by a leading spinner frame, so a frameless
+// title is no marker: it means idle once they've shown frames, and nothing
+// before — the frames may be turned off, and a retitle mid-run must not end it.
+const FRAME_ONLY = new Set(["codex", "muse"]);
 const listeners = new Set<() => void>();
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -105,8 +123,11 @@ async function detectOne(id: string): Promise<void> {
     worktree = prev.worktree;
   }
   if (prev?.id === hit.id && prev.cwd === cwd && sameWorktree(prev.worktree, worktree)) return; // unchanged
+  if (prev?.id !== hit.id) announced.delete(id);
   matches.set(id, { id: hit.id, cwd, worktree });
   syncAgentStatus(id, getSession(id)?.lastTitle ?? "");
+  const st = reported.get(id);
+  if (st) announce(id, st);
   notify();
 }
 
@@ -151,6 +172,8 @@ export function triggerDetect(id: string): void {
 
 /** Clear a terminal's match immediately (used on PTY exit / dispose). */
 export function clearAgent(id: string): void {
+  reported.delete(id);
+  announced.delete(id);
   setAgentStatus(id, null);
   if (matches.delete(id)) notify();
 }
@@ -162,7 +185,28 @@ export function syncAgentStatus(id: string, rawTitle: string): void {
   const ag = matches.get(id);
   if (!ag) return;
   const st = parseAgentStatus(ag.id, rawTitle);
-  if (st) setAgentStatus(id, st);
+  if (!st || (st === "done" && FRAME_ONLY.has(ag.id) && !announced.has(id))) return;
+  announce(id, st);
+}
+
+function announce(id: string, status: AgentRunStatus): void {
+  announced.add(id);
+  setAgentStatus(id, status);
+}
+
+/** Mirror a run state the terminal reported out of band (OSC 7501 program
+ *  status / OSC 9;4 progress, sniffed in term.ts) — the explicit signal, so it
+ *  goes straight to the store whenever an agent is detected there. */
+export function reportAgentStatus(id: string, status: AgentRunStatus): void {
+  reported.set(id, status);
+  if (matches.has(id)) announce(id, status);
+}
+
+/** Mirror the output-activity guess (output-activity.ts) for a detected agent
+ *  that hasn't announced its state itself — OpenCode and Antigravity never
+ *  do, others only with their title turned off. */
+export function reportAgentActivity(id: string, status: AgentRunStatus): void {
+  if (matches.has(id) && !announced.has(id)) setAgentStatus(id, status);
 }
 
 export function getAgentForTerm(id: string): AgentMatch | null {
@@ -204,6 +248,14 @@ function extractClaudeTopic(raw: string): string {
   return s;
 }
 
+// omp's OSC title is "π <state> <session label>" (see parseAgentStatus); the
+// label is the topic.
+function extractOmpTopic(raw: string): string {
+  let s = OMP_TITLE.exec(raw.trim())?.[2]?.trim() ?? "";
+  if (s.length > 32) s = s.slice(0, 31) + "…";
+  return s;
+}
+
 // OpenCode's OSC title is "OpenCode" (home/new) or "OC | {title}" (session).
 function extractOpenCodeTopic(raw: string): string {
   const s = raw.trim();
@@ -229,6 +281,7 @@ export function agentTitleParts(
   if (agentId === "pi") desc = folderName ?? "";
   else if (agentId === "claude") desc = extractClaudeTopic(rawTitle);
   else if (agentId === "opencode") desc = extractOpenCodeTopic(rawTitle);
+  else if (agentId === "omp") desc = extractOmpTopic(rawTitle);
   return { name, desc };
 }
 
@@ -250,6 +303,7 @@ export function agentTabTitle(
   if (agentId === "pi") topic = folderName ?? "";
   else if (agentId === "claude") topic = extractClaudeTopic(rawTitle);
   else if (agentId === "opencode") topic = extractOpenCodeTopic(rawTitle);
+  else if (agentId === "omp") topic = extractOmpTopic(rawTitle);
   // antigravity: no stable title pattern — just the brand name.
   return topic || base;
 }
@@ -275,19 +329,34 @@ export function agentCombinedTitle(
 }
 
 // ── Agent working/done status ───────────────────────────────────────────
-// Each CLI surfaces its state in the OSC title (and Pi also via OSC 9;4
-// progress sequences, sniffed in term.ts). We parse the title into a status so
-// the sidebar can show a working spinner vs a done check on the agent's tab.
+// Most CLIs surface their state in the OSC title; Pi (and any agent printing
+// OSC 7501 / OSC 9;4) reports it out of band — see reportAgentStatus. Agents
+// that announce nothing fall back to output activity (reportAgentActivity).
+// We parse the title into a status so the sidebar can tell a working agent's
+// tab from an idle one.
 //   Claude Code: ◐/◑ half-circle spinner (braille in older releases) =
 //     working, asterisk marker (U+2733) = turn ended.
-//   OpenCode: spinner prefix (braille) = busy, `▣` = idle (built-in, PR #29597).
-//   Pi (with a status extension): `◰◳◲◱`/braille spinner = working,
-//     `✓` or `●` = idle. Pi's built-in OSC 9;4 path is handled separately.
-//   Antigravity: title is user-customizable — no reliable status pattern.
+//   Codex: the default title items are activity, thread and project — a
+//     braille frame leads while a turn runs, nothing while idle, and
+//     "[ ! ] Action Required" while it waits on an approval.
+//   omp: "π <sep> <label>" — the separator is a spinner frame (braille,
+//     ○◔◑◕●, -\|/, or a static ":" where frames can't animate) while
+//     working, ">" on the user's turn and "!" when it needs attention.
+//   Pi: its own title is "π - <folder>"; status extensions lead it with a
+//     `◰◳◲◱`/braille spinner = working, `✓` or `●` = idle. Pi's OSC 7501
+//     program status is the main signal (Ash sets PI_PROGRAM_STATUS=1).
+//   Muse Code: its folder name, led by a braille frame while a turn runs.
+//   OpenCode: "OpenCode" / "OC | <session>" carries no state (older
+//     releases led it with a braille spinner, `▣` when idle).
+//   Antigravity: no state in the title.
 export type AgentRunStatus = "working" | "done";
 
 const BRAILLE_SPINNER = /[\u2800-\u28ff]/;
-const PI_SPINNER = /[\u25f0-\u25f3 ◰◳◲◱]/;
+// Only a LEADING frame (after an optional context-% prefix) counts — a space
+// in this class once matched every Pi title and kept the tab "working".
+const PI_SPINNER = /^(\[\d+%\]!?\s*)?[\u25f0-\u25f3\u2800-\u28ff]/;
+// "π <separator> <label>" — the separator is one non-space character.
+const OMP_TITLE = /^\u03c0 (\S)(?: (.*))?$/;
 
 /** Parse an agent's run status from its raw OSC title. Returns null when no
  *  status can be inferred (unknown agent, title disabled, or idle without a
@@ -310,9 +379,18 @@ export function parseAgentStatus(agentId: string, rawTitle: string): AgentRunSta
   if (agentId === "pi") {
     // Pi with a status extension (pi-idle / pi-dynamic-title): spinner =
     // working, ✓ or ● (with optional context-% prefix) = done.
-    if (PI_SPINNER.test(t) || BRAILLE_SPINNER.test(t.slice(0, 3))) return "working";
+    if (PI_SPINNER.test(t)) return "working";
     if (/^(\[\d+%\]!?\s*)?[✓●]/.test(t)) return "done";
     return null;
+  }
+  if (agentId === "codex" || agentId === "muse") {
+    // No frame is the idle state itself, so every title says something.
+    return BRAILLE_SPINNER.test(t[0]) ? "working" : "done";
+  }
+  if (agentId === "omp") {
+    const sep = OMP_TITLE.exec(t)?.[1];
+    if (!sep) return null; // titles off ("π: label") or not omp's yet
+    return sep === ">" || sep === "!" ? "done" : "working";
   }
   return null;
 }

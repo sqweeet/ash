@@ -29,7 +29,7 @@ import {
   isSessionUsed,
   setSpawnOptions,
 } from "./lib/term";
-import { startAgentDetection, stopAgentDetection, triggerDetect, clearAgent, syncAgentStatus, getAgentForTerm, onAgentDetectChange, agentTabTitle, agentCombinedTitle } from "./lib/agent-detect";
+import { startAgentDetection, stopAgentDetection, triggerDetect, clearAgent, syncAgentStatus, reportAgentStatus, reportAgentActivity, getAgentForTerm, onAgentDetectChange, agentTabTitle, agentCombinedTitle } from "./lib/agent-detect";
 import { getSettings, onSettingsChange, updateSettings } from "./lib/settings";
 import {
   Leaf,
@@ -974,11 +974,13 @@ export default function App() {
     [],
   );
 
+  // An unchanged title keeps the same array: agent spinners retitle ~10x a
+  // second and would otherwise re-render the whole app on every frame.
   const setTitle = useCallback((tabId: string, title: string) => {
     setTabs((ts) =>
-      ts.map((t) =>
-        t.id === tabId && t.title !== title ? { ...t, title } : t,
-      ),
+      ts.some((t) => t.id === tabId && t.title !== title)
+        ? ts.map((t) => (t.id === tabId ? { ...t, title } : t))
+        : ts,
     );
   }, []);
 
@@ -1089,7 +1091,9 @@ export default function App() {
       onTitle: (paneId, title) => {
         // An OSC title change is a strong early hint a CLI agent just became
         // foreground — re-check its process before the next poll interval.
-        triggerDetect(paneId);
+        // A detected agent's own spinner retitles ~10x a second, and the
+        // poll already tracks it, so don't walk the process tree each frame.
+        if (!getAgentForTerm(paneId)) triggerDetect(paneId);
         syncAgentStatus(paneId, title);
         const tab = tabsRef.current.find((t) =>
           leafIds(t.root).includes(paneId),
@@ -1097,6 +1101,8 @@ export default function App() {
         if (!tab || tab.titlePinned || tab.activePane !== paneId) return;
         retitleTabByAgents(tab);
       },
+      onStatus: reportAgentStatus,
+      onActivity: reportAgentActivity,
       onExit: (paneId) => {
         clearAgent(paneId);
         closePane(paneId, false);

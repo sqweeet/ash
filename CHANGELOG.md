@@ -9,7 +9,11 @@
 
 ### Sidebar
 
-- Show when a CLI agent is working: Claude Code's title spinner is read from the terminal, and the tab title shines while a turn runs. Spinner glyphs no longer leak into tab titles.
+- Show when a CLI agent is working: the tab title shines while a turn runs. Claude Code, Codex, omp, and Muse Code are read from their title spinners. Spinner glyphs no longer leak into tab titles.
+- Show when Pi is working from its program status reports (OSC 7501, switched on for Pi in Ash's terminals with `PI_PROGRAM_STATUS=1`). OSC 9;4 progress from any CLI agent counts too.
+- Fall back to output activity for agents that don't report their state (OpenCode, Antigravity, or any agent with its title turned off): a TUI that keeps redrawing on its own is working, and two quiet seconds end the run.
+- Detect Meta's Muse Code (`muse-bin-<version>.exe`, run by its `muse.cmd` launcher) and omp (oh-my-pi, `omp.exe`), show their marks, and offer them in the Agents section when they are on the PATH.
+- Stop re-rendering the whole window on every frame of an agent's title spinner.
 - Fade long tab titles at the edge and scroll them on hover instead of cutting them off with "…".
 
 ### Terminal

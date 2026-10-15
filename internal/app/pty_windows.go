@@ -30,16 +30,29 @@ func platformPtyInfo() PtyInfo {
 // Ash hosts xterm regardless of which terminal (or automation) launched it.
 // In particular, never forward a launcher's TERM=dumb to interactive shells.
 // Build a child-only environment so commands outside the PTY are unaffected.
+//
+// Ash reads OSC 7501 program status (the sidebar's working state), so Pi is
+// told up front to report it — Pi otherwise only reports after the terminal
+// answers its support query, which xterm doesn't. A user's own
+// PI_PROGRAM_STATUS wins.
 func ptyEnvironment(inherited []string) []string {
-	env := make([]string, 0, len(inherited)+2)
+	env := make([]string, 0, len(inherited)+3)
+	piStatus := true
 	for _, entry := range inherited {
 		key, _, _ := strings.Cut(entry, "=")
 		if strings.EqualFold(key, "TERM") || strings.EqualFold(key, "COLORTERM") {
 			continue
 		}
+		if strings.EqualFold(key, "PI_PROGRAM_STATUS") {
+			piStatus = false
+		}
 		env = append(env, entry)
 	}
-	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	if piStatus {
+		env = append(env, "PI_PROGRAM_STATUS=1")
+	}
+	return env
 }
 
 func (p *ptyProc) Read(buf []byte) (int, error) { return p.proc.Read(buf) }

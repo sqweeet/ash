@@ -85,6 +85,23 @@ export const AGENTS: AgentDef[] = [
     extra: [{ label: "Continue last session", command: "pi -c" }],
   },
   {
+    id: "omp",
+    name: "omp",
+    vendor: "oh-my-pi",
+    bin: "omp",
+    launch: "omp",
+    models: [{ id: "", label: "Default" }],
+    extra: [{ label: "Continue last session", command: "omp -c" }],
+  },
+  {
+    id: "muse",
+    name: "Muse Code",
+    vendor: "Meta",
+    bin: "muse",
+    launch: "muse",
+    models: [{ id: "", label: "Default" }],
+  },
+  {
     id: "agy",
     name: "Antigravity",
     vendor: "Google",

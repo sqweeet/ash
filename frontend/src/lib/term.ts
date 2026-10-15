@@ -8,6 +8,9 @@ import { readText, writeText } from "../backend/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { configureTerminalWheel } from "./terminal-wheel";
 import { createTerminalOutput } from "./terminal-output";
+import { parseProgramStatus, parseProgress } from "./program-status";
+import { createActivityMeter } from "./output-activity";
+import type { AgentStatus } from "./agent-status";
 
 import {
   DEFAULT_FONT_SIZE,
@@ -51,6 +54,10 @@ export interface TermSession {
 interface SessionEvents {
   onShell: (id: string, shell: string) => void;
   onTitle: (id: string, title: string) => void;
+  /** Run state a CLI agent reported out of band (OSC 7501 / OSC 9;4). */
+  onStatus: (id: string, status: AgentStatus) => void;
+  /** Run state guessed from output activity (output-activity.ts). */
+  onActivity: (id: string, status: AgentStatus) => void;
   onExit: (id: string) => void;
   /** Where a localhost link should open in-app (ctrl+click). */
   onOpenLocalUrl: (id: string, url: string) => void;
@@ -243,8 +250,26 @@ function wireAndSpawn(
   let promptBuffer = "";
   const output = createTerminalOutput(term);
   session.cleanup.push(() => output.dispose());
+  // CLI agents report their run state out of band (program-status.ts). Only
+  // observed: returning false leaves each sequence to any other handler.
+  const report = (status: AgentStatus | null) => {
+    if (status) events?.onStatus(id, status);
+    return false;
+  };
+  const statusHandlers = [
+    term.parser.registerOscHandler(7501, (data) => report(parseProgramStatus(data))),
+    term.parser.registerOscHandler(9, (data) => report(parseProgress(data))),
+  ];
+  session.cleanup.push(() => statusHandlers.forEach((h) => h.dispose()));
+  const activity = createActivityMeter((status) => events?.onActivity(id, status));
+  const typed = term.onData(() => activity.input());
+  session.cleanup.push(() => {
+    typed.dispose();
+    activity.dispose();
+  });
   onPtyData(id, (data) => {
     output.write(data);
+    activity.output();
     if (passwordPending) {
       promptBuffer = (promptBuffer + data).slice(-200);
       if (/(password|passphrase)[^:]*:\s*$/i.test(promptBuffer)) {
